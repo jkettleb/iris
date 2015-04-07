@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2013 - 2014, Met Office
+# (C) British Crown Copyright 2013 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,19 +17,14 @@
 """
 Automatic concatenation of multiple cubes over one or more existing dimensions.
 
-.. warning::
-
-    Currently, the :func:`concatenate` routine will load the data payload
-    of all cubes passed to it.
-
-    This restriction will be relaxed in a future release.
-
 """
+
+from __future__ import (absolute_import, division, print_function)
 
 from collections import defaultdict, namedtuple
 
+import biggus
 import numpy as np
-import numpy.ma as ma
 
 import iris.coords
 import iris.cube
@@ -129,6 +124,8 @@ class _CoordMetaData(namedtuple('CoordMetaData',
         bounds_dtype = coord.bounds.dtype if coord.bounds is not None \
             else None
         kwargs = {}
+        # Add scalar flag metadata.
+        kwargs['scalar'] = coord.points.size == 1
         # Add circular flag metadata for dimensional coordinates.
         if hasattr(coord, 'circular'):
             kwargs['circular'] = coord.circular
@@ -146,6 +143,33 @@ class _CoordMetaData(namedtuple('CoordMetaData',
                                                       bounds_dtype,
                                                       kwargs)
         return metadata
+
+    def __eq__(self, other):
+        result = NotImplemented
+        if isinstance(other, _CoordMetaData):
+            sprops, oprops = self._asdict(), other._asdict()
+            # Ignore "kwargs" meta-data for the first comparison.
+            sprops['kwargs'] = oprops['kwargs'] = None
+            result = sprops == oprops
+            if result:
+                skwargs, okwargs = self.kwargs.copy(), other.kwargs.copy()
+                # Monotonic "order" only applies to DimCoord's.
+                # The monotonic "order" must be _INCREASING or _DECREASING if
+                # the DimCoord is NOT "scalar". Otherwise, if the DimCoord is
+                # "scalar" then the "order" must be _CONSTANT.
+                if skwargs['scalar'] or okwargs['scalar']:
+                    # We don't care about the monotonic "order" given that
+                    # at least one coordinate is a scalar coordinate.
+                    skwargs['scalar'] = okwargs['scalar'] = None
+                    skwargs['order'] = okwargs['order'] = None
+                result = skwargs == okwargs
+        return result
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is not NotImplemented:
+            result = not result
+        return result
 
     def name(self):
         """Get the name from the coordinate definition."""
@@ -236,10 +260,6 @@ def concatenate(cubes, error_on_mismatch=False):
 
     # Register each cube with its appropriate proto-cube.
     for cube in cubes:
-        # TODO: Remove this when new deferred data mechanism is available.
-        # Avoid deferred data/data manager issues, and load the cube data!
-        cube.data
-
         name = cube.standard_name or cube.long_name
         proto_cubes = proto_cubes_by_name[name]
         registered = False
@@ -300,7 +320,7 @@ class _CubeSignature(object):
         self.anonymous = covered != set(range(self.ndim))
 
         self.defn = cube.metadata
-        self.data_type = cube.data.dtype
+        self.data_type = cube.dtype
 
         #
         # Collate the dimension coordinate metadata.
@@ -584,7 +604,6 @@ class _ProtoCube(object):
         # The cube signature is a combination of cube and coordinate
         # metadata that defines this proto-cube.
         self._cube_signature = _CubeSignature(cube)
-        self._data_is_masked = ma.isMaskedArray(cube.data)
 
         # The coordinate signature allows suitable non-overlapping
         # source-cubes to be identified.
@@ -592,7 +611,7 @@ class _ProtoCube(object):
 
         # The list of source-cubes relevant to this proto-cube.
         self._skeletons = []
-        self._add_skeleton(self._coord_signature, cube.data)
+        self._add_skeleton(self._coord_signature, cube.lazy_data())
 
         # The nominated axis of concatenation.
         self._axis = None
@@ -694,8 +713,7 @@ class _ProtoCube(object):
 
         if match:
             # Register the cube as a source-cube for this proto-cube.
-            self._add_skeleton(coord_signature, cube.data)
-            self._data_is_masked |= ma.isMaskedArray(cube.data)
+            self._add_skeleton(coord_signature, cube.lazy_data())
             # Declare the nominated axis of concatenation.
             self._axis = candidate_axis
 
@@ -788,10 +806,7 @@ class _ProtoCube(object):
         skeletons = self._skeletons
         data = [skeleton.data for skeleton in skeletons]
 
-        if self._data_is_masked:
-            data = ma.concatenate(tuple(data), axis=self.axis)
-        else:
-            data = np.concatenate(tuple(data), axis=self.axis)
+        data = biggus.LinearMosaic(tuple(data), axis=self.axis)
 
         return data
 
@@ -873,31 +888,31 @@ class _ProtoCube(object):
             for i, extent in enumerate(dim_extents[1:]):
                 # Check the points - must be strictly monotonic.
                 if order == _DECREASING:
-                    left = dim_extents[i].points.min
-                    right = extent.points.max
+                    big = dim_extents[i].points.min
+                    small = extent.points.max
                 else:
-                    left = dim_extents[i].points.max
-                    right = extent.points.min
+                    small = dim_extents[i].points.max
+                    big = extent.points.min
 
-                if left >= right:
+                if small >= big:
                     result = False
                     break
 
                 # Check the bounds - must be strictly monotonic.
                 if extent.bounds is not None:
                     if order == _DECREASING:
-                        left_0 = dim_extents[i].bounds[0].min
-                        left_1 = dim_extents[1].bounds[1].min
-                        right_0 = extent.bounds[0].max
-                        right_1 = extent.bounds[1].max
+                        big_0 = dim_extents[i].bounds[0].min
+                        big_1 = dim_extents[i].bounds[1].min
+                        small_0 = extent.bounds[0].max
+                        small_1 = extent.bounds[1].max
                     else:
-                        left_0 = dim_extents[i].bounds[0].max
-                        left_1 = dim_extents[i].bounds[1].max
-                        right_0 = extent.bounds[0].min
-                        right_1 = extent.bounds[1].min
+                        small_0 = dim_extents[i].bounds[0].max
+                        small_1 = dim_extents[i].bounds[1].max
+                        big_0 = extent.bounds[0].min
+                        big_1 = extent.bounds[1].min
 
-                    lower_bound_fail = left_0 >= right_0
-                    upper_bound_fail = left_1 >= right_1
+                    lower_bound_fail = small_0 >= big_0
+                    upper_bound_fail = small_1 >= big_1
 
                     if lower_bound_fail or upper_bound_fail:
                         result = False

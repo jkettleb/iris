@@ -16,11 +16,11 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for the `iris.fileformats.pp.PPField` class."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
-
-import warnings
 
 import mock
 import numpy as np
@@ -114,6 +114,44 @@ class Test_calendar(tests.IrisTest):
         field = TestPPField()
         field.lbtim = SplittableInt(4, {'ia': 2, 'ib': 1, 'ic': 0})
         self.assertEqual(field.calendar, '365_day')
+
+
+class Test_coord_system(tests.IrisTest):
+    def _check_cs(self, bplat, bplon, rotated):
+        field = TestPPField()
+        field.bplat = bplat
+        field.bplon = bplon
+        with mock.patch('iris.fileformats.pp.iris.coord_systems') \
+                as mock_cs_mod:
+            result = field.coord_system()
+        if not rotated:
+            # It should return a standard unrotated CS.
+            self.assertTrue(mock_cs_mod.GeogCS.call_count == 1)
+            self.assertEqual(result, mock_cs_mod.GeogCS())
+        else:
+            # It should return a rotated CS with the correct makeup.
+            self.assertTrue(mock_cs_mod.GeogCS.call_count == 1)
+            self.assertTrue(mock_cs_mod.RotatedGeogCS.call_count == 1)
+            self.assertEqual(result, mock_cs_mod.RotatedGeogCS())
+            self.assertEqual(mock_cs_mod.RotatedGeogCS.call_args_list[0],
+                             mock.call(bplat, bplon,
+                                       ellipsoid=mock_cs_mod.GeogCS()))
+
+    def test_normal_unrotated(self):
+        # Check that 'normal' BPLAT,BPLON=90,0 produces an unrotated system.
+        self._check_cs(bplat=90, bplon=0, rotated=False)
+
+    def test_bplon_180_unrotated(self):
+        # Check that BPLAT,BPLON=90,180 behaves the same as 90,0.
+        self._check_cs(bplat=90, bplon=180, rotated=False)
+
+    def test_odd_bplat_rotated(self):
+        # Show that BPLAT != 90 produces a rotated field.
+        self._check_cs(bplat=75, bplon=180, rotated=True)
+
+    def test_odd_bplon_rotated(self):
+        # Show that BPLON != 0 or 180 produces a rotated field.
+        self._check_cs(bplat=90, bplon=123.45, rotated=True)
 
 
 class Test__init__(tests.IrisTest):
@@ -230,6 +268,45 @@ class Test__getattr__(tests.IrisTest):
     def test_attr_unknown(self):
         with self.assertRaises(AttributeError):
             TestPPField().x
+
+
+class Test_lbtim(tests.IrisTest):
+    def test_get_splittable(self):
+        headers = [0] * 64
+        headers[12] = 12345
+        field = TestPPField(headers)
+        self.assertIsInstance(field.lbtim, SplittableInt)
+        self.assertEqual(field.lbtim.ia, 123)
+        self.assertEqual(field.lbtim.ib, 4)
+        self.assertEqual(field.lbtim.ic, 5)
+
+    def test_set_int(self):
+        headers = [0] * 64
+        headers[12] = 12345
+        field = TestPPField(headers)
+        field.lbtim = 34567
+        self.assertIsInstance(field.lbtim, SplittableInt)
+        self.assertEqual(field.lbtim.ia, 345)
+        self.assertEqual(field.lbtim.ib, 6)
+        self.assertEqual(field.lbtim.ic, 7)
+        self.assertEqual(field.raw_lbtim, 34567)
+
+    def test_set_splittable(self):
+        # Check that assigning a SplittableInt to lbtim uses the integer
+        # value. In other words, check that you can't assign an
+        # arbitrary SplittableInt with crazy named attributes.
+        headers = [0] * 64
+        headers[12] = 12345
+        field = TestPPField(headers)
+        si = SplittableInt(34567, {'foo': 0})
+        field.lbtim = si
+        self.assertIsInstance(field.lbtim, SplittableInt)
+        with self.assertRaises(AttributeError):
+            field.lbtim.foo
+        self.assertEqual(field.lbtim.ia, 345)
+        self.assertEqual(field.lbtim.ib, 6)
+        self.assertEqual(field.lbtim.ic, 7)
+        self.assertEqual(field.raw_lbtim, 34567)
 
 
 if __name__ == "__main__":

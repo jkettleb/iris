@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -14,17 +14,19 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Classes for representing multi-dimensional data with metadata.
 
 """
+
+from __future__ import (absolute_import, division, print_function)
 
 from xml.dom.minidom import Document
 import collections
 import copy
 import datetime
 import operator
-import re
 import UserDict
 import warnings
 import zlib
@@ -47,6 +49,7 @@ import iris.exceptions
 import iris.util
 
 from iris._cube_coord_common import CFVariableMixin
+from functools import reduce
 
 
 __all__ = ['Cube', 'CubeList', 'CubeMetadata']
@@ -309,6 +312,33 @@ class CubeList(list):
         """
         return self.extract(constraints, strict=True)
 
+    def extract_overlapping(self, coord_names):
+        """
+        Returns a :class:`CubeList` of cubes extracted over regions
+        where the coordinates overlap, for the coordinates
+        in coord_names.
+
+        Args:
+
+        * coord_names:
+           A string or list of strings of the names of the coordinates
+           over which to perform the extraction.
+
+        """
+        if isinstance(coord_names, basestring):
+            coord_names = [coord_names]
+
+        def make_overlap_fn(coord_name):
+            def overlap_fn(cell):
+                return all(cell in cube.coord(coord_name).cells()
+                           for cube in self)
+            return overlap_fn
+
+        coord_values = {coord_name: make_overlap_fn(coord_name)
+                        for coord_name in coord_names}
+
+        return self.extract(iris.Constraint(coord_values=coord_values))
+
     def merge_cube(self):
         """
         Return the merged contents of the :class:`CubeList` as a single
@@ -372,13 +402,13 @@ class CubeList(list):
 
         For example::
 
-            >>> print c1
+            >>> print(c1)
             some_parameter / (unknown)          (x_vals: 3)
                  Dimension coordinates:
                       x_vals                           x
                  Scalar coordinates:
                       y_vals: 100
-            >>> print c2
+            >>> print(c2)
             some_parameter / (unknown)          (x_vals: 3)
                  Dimension coordinates:
                       x_vals                           x
@@ -386,12 +416,12 @@ class CubeList(list):
                       y_vals: 200
             >>> cube_list = iris.cube.CubeList([c1, c2])
             >>> new_cube = cube_list.merge()[0]
-            >>> print new_cube
+            >>> print(new_cube)
             some_parameter / (unknown)          (y_vals: 2; x_vals: 3)
                  Dimension coordinates:
                       y_vals                           x          -
                       x_vals                           -          x
-            >>> print new_cube.coord('y_vals').points
+            >>> print(new_cube.coord('y_vals').points)
             [100 200]
             >>>
 
@@ -490,28 +520,28 @@ class CubeList(list):
 
         For example::
 
-            >>> print c1
+            >>> print(c1)
             some_parameter / (unknown)          (y_vals: 2; x_vals: 4)
                  Dimension coordinates:
                       y_vals                           x          -
                       x_vals                           -          x
-            >>> print c1.coord('y_vals').points
+            >>> print(c1.coord('y_vals').points)
             [4 5]
-            >>> print c2
+            >>> print(c2)
             some_parameter / (unknown)          (y_vals: 3; x_vals: 4)
                  Dimension coordinates:
                       y_vals                           x          -
                       x_vals                           -          x
-            >>> print c2.coord('y_vals').points
+            >>> print(c2.coord('y_vals').points)
             [ 7  9 10]
             >>> cube_list = iris.cube.CubeList([c1, c2])
             >>> new_cube = cube_list.concatenate()[0]
-            >>> print new_cube
+            >>> print(new_cube)
             some_parameter / (unknown)          (y_vals: 5; x_vals: 4)
                  Dimension coordinates:
                       y_vals                           x          -
                       x_vals                           -          x
-            >>> print new_cube.coord('y_vals').points
+            >>> print(new_cube.coord('y_vals').points)
             [ 4  5  7  9 10]
             >>>
 
@@ -543,7 +573,7 @@ class Cube(CFVariableMixin):
     For example:
 
         >>> cube = iris.load_cube(iris.sample_data_path('air_temp.pp'))
-        >>> print cube
+        >>> print(cube)
         air_temperature / (K)               (latitude: 73; longitude: 96)
              Dimension coordinates:
                   latitude                           x              -
@@ -558,7 +588,8 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                   STASH: m01s16i203
                   source: Data from Met Office Unified Model
              Cell methods:
-                  mean: time
+                  mean within years: time
+                  mean over years: time
 
 
     See the :doc:`user guide</userguide/index>` for more information.
@@ -1368,6 +1399,11 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         return shape
 
     @property
+    def dtype(self):
+        """The :class:`numpy.dtype` of the data of this cube."""
+        return self.lazy_data().dtype
+
+    @property
     def ndim(self):
         """The number of dimensions in the data of this cube."""
         return len(self.shape)
@@ -1431,16 +1467,20 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
 
         Example::
             >>> fname = iris.sample_data_path('air_temp.pp')
-            >>> cube = iris.load_cube(fname, 'air_temperature')  \
-# cube.data does not yet have a value.
-            >>> print cube.shape                                 \
-# cube.data still does not have a value.
+            >>> cube = iris.load_cube(fname, 'air_temperature')
+            >>> # cube.data does not yet have a value.
+            ...
+            >>> print(cube.shape)
             (73, 96)
-            >>> cube = cube[:10, :20]                            \
-# cube.data still does not have a value.
-            >>> data = cube.data                                 \
-# Only now is the data loaded.
-            >>> print data.shape
+            >>> # cube.data still does not have a value.
+            ...
+            >>> cube = cube[:10, :20]
+            >>> # cube.data still does not have a value.
+            ...
+            >>> data = cube.data
+            >>> # Only now is the data loaded.
+            ...
+            >>> print(data.shape)
             (10, 20)
 
         """
@@ -1497,7 +1537,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         """
         return tuple((coord for coord, dim in
                       sorted(self._dim_coords_and_dims,
-                             key=lambda (coord, dim): (dim, coord.name()))))
+                             key=lambda co_di: (co_di[1], co_di[0].name()))))
 
     @property
     def aux_coords(self):
@@ -1508,7 +1548,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         """
         return tuple((coord for coord, dims in
                       sorted(self._aux_coords_and_dims,
-                             key=lambda (coord, dims): (dims, coord.name()))))
+                             key=lambda co_di: (co_di[1], co_di[0].name()))))
 
     @property
     def derived_coords(self):
@@ -1876,7 +1916,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                                          dimension_mapping[d] is not None]
 
         try:
-            first_slice = slice_gen.next()
+            first_slice = next(slice_gen)
         except StopIteration:
             first_slice = None
 
@@ -2014,6 +2054,10 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                 If True, coordinate values equal to `maximum` will be included
                 in the selection. Default is True.
 
+        To perform an intersection that ignores any bounds on the coordinates,
+        set the optional keyword argument *ignore_bounds* to True. Defaults to
+        False.
+
         .. note::
 
             For ranges defined over "circular" coordinates (i.e. those
@@ -2029,16 +2073,16 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
 
             >>> import iris
             >>> cube = iris.load_cube(iris.sample_data_path('air_temp.pp'))
-            >>> print cube.coord('longitude').points[::10]
+            >>> print(cube.coord('longitude').points[::10])
             [   0.           37.49999237   74.99998474  112.49996948  \
 149.99996948
               187.49995422  224.99993896  262.49993896  299.99993896  \
 337.49990845]
             >>> subset = cube.intersection(longitude=(30, 50))
-            >>> print subset.coord('longitude').points
+            >>> print(subset.coord('longitude').points)
             [ 33.74999237  37.49999237  41.24998856  44.99998856  48.74998856]
             >>> subset = cube.intersection(longitude=(-10, 10))
-            >>> print subset.coord('longitude').points
+            >>> print(subset.coord('longitude').points)
             [-7.50012207 -3.75012207  0.          3.75        7.5       ]
 
         Returns:
@@ -2047,14 +2091,17 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
 
         """
         result = self
+        ignore_bounds = kwargs.pop('ignore_bounds', False)
         for arg in args:
-            result = result._intersect(*arg)
+            result = result._intersect(*arg, ignore_bounds=ignore_bounds)
         for name, value in kwargs.iteritems():
-            result = result._intersect(name, *value)
+            result = result._intersect(name, *value,
+                                       ignore_bounds=ignore_bounds)
         return result
 
     def _intersect(self, name_or_coord, minimum, maximum,
-                   min_inclusive=True, max_inclusive=True):
+                   min_inclusive=True, max_inclusive=True,
+                   ignore_bounds=False):
         coord = self.coord(name_or_coord)
         if coord.ndim != 1:
             raise iris.exceptions.CoordinateMultiDimError(coord)
@@ -2070,7 +2117,8 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         subsets, points, bounds = self._intersect_modulus(coord,
                                                           minimum, maximum,
                                                           min_inclusive,
-                                                          max_inclusive)
+                                                          max_inclusive,
+                                                          ignore_bounds)
 
         # By this point we have either one or two subsets along the relevant
         # dimension. If it's just one subset (which might be a slice or an
@@ -2144,7 +2192,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         return result
 
     def _intersect_modulus(self, coord, minimum, maximum, min_inclusive,
-                           max_inclusive):
+                           max_inclusive, ignore_bounds):
         modulus = coord.units.modulus
         if maximum > minimum + modulus:
             raise ValueError("requested range greater than coordinate's"
@@ -2158,24 +2206,32 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                              " unit's modulus")
         min_comp = np.less_equal if min_inclusive else np.less
         max_comp = np.less_equal if max_inclusive else np.less
+
         if coord.has_bounds():
             bounds = wrap_lons(coord.bounds, minimum, modulus)
-            inside = np.logical_and(min_comp(minimum, bounds),
-                                    max_comp(bounds, maximum))
-            inside_indices, = np.where(np.any(inside, axis=1))
+            if ignore_bounds:
+                points = wrap_lons(coord.points, minimum, modulus)
+                inside_indices, = np.where(
+                    np.logical_and(min_comp(minimum, points),
+                                   max_comp(points, maximum)))
+            else:
+                inside = np.logical_and(min_comp(minimum, bounds),
+                                        max_comp(bounds, maximum))
+                inside_indices, = np.where(np.any(inside, axis=1))
 
             # To ensure that bounds (and points) of matching cells aren't
             # "scrambled" by the wrap operation we detect split cells that
-            # straddle the wrap point and ensure that the lower bound of the
-            # cell (and associated point) are wrapped correctly given the
-            # provided wrap point.
+            # straddle the wrap point and choose a new wrap point which avoids
+            # split cells.
             # For example: the cell [349.875, 350.4375] wrapped at -10 would
             # become [349.875, -9.5625] which is no longer valid. The lower
             # cell bound value (and possibly associated point) are
             # recalculated so that they are consistent with the extended
-            # wapping scheme which moves the wrap point to the correct lower
-            # bound value thus resulting in the cell no longer being split.
-
+            # wrapping scheme which moves the wrap point to the correct lower
+            # bound value (-10.125) thus resulting in the cell no longer
+            # being split. For bounds which may extend exactly the length of
+            # the modulus, we simply preserve the point to bound difference,
+            # and call the new bounds = the new points + the difference.
             pre_wrap_delta = np.diff(coord.bounds[inside_indices])
             post_wrap_delta = np.diff(bounds[inside_indices])
             split_cell_indices, _ = np.where(pre_wrap_delta != post_wrap_delta)
@@ -2184,6 +2240,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                 indices = inside_indices[split_cell_indices]
                 cells = bounds[indices]
                 cells_delta = np.diff(coord.bounds[indices])
+
                 # Watch out for ascending/descending bounds
                 if cells_delta[0, 0] > 0:
                     cells[:, 0] = cells[:, 1] - cells_delta[:, 0]
@@ -2191,11 +2248,13 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                 else:
                     cells[:, 1] = cells[:, 0] + cells_delta[:, 0]
                     minimum = np.min(cells[:, 1])
-                bounds = wrap_lons(coord.bounds, minimum, modulus)
+
             points = wrap_lons(coord.points, minimum, modulus)
+
+            bound_diffs = coord.points[:, np.newaxis] - coord.bounds
+            bounds = points[:, np.newaxis] - bound_diffs
         else:
-            points = iris.analysis.cartography.wrap_lons(coord.points, minimum,
-                                                         modulus)
+            points = wrap_lons(coord.points, minimum, modulus)
             bounds = None
             inside_indices, = np.where(
                 np.logical_and(min_comp(minimum, points),
@@ -2263,7 +2322,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         For example, to get all subcubes along the time dimension::
 
             for sub_cube in cube.slices_over('time'):
-                print sub_cube
+                print(sub_cube)
 
         .. seealso:: :meth:`iris.cube.Cube.slices`.
 
@@ -2326,7 +2385,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         multi-dimensional cube::
 
             for sub_cube in cube.slices(['longitude', 'latitude']):
-                print sub_cube
+                print(sub_cube)
 
         .. seealso:: :meth:`iris.cube.Cube.slices_over`.
 
@@ -2577,13 +2636,15 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
 
     def _deepcopy(self, memo, data=None):
         if data is None:
-            if not self.has_lazy_data() and self.ndim == 0:
-                # Cope with NumPy's asymmetric (aka. "annoying!") behaviour
-                # of deepcopy on 0-d arrays.
-                new_cube_data = np.asanyarray(self.data)
+            # Use a copy of the source cube data.
+            if self.has_lazy_data():
+                # Use copy.copy, as lazy arrays don't have a copy method.
+                new_cube_data = copy.copy(self.lazy_data())
             else:
-                new_cube_data = copy.copy(self._my_data)
+                # Do *not* use copy.copy, as NumPy 0-d arrays do that wrong.
+                new_cube_data = self.data.copy()
         else:
+            # Use the provided data (without copying it).
             if not isinstance(data, biggus.Array):
                 data = np.asanyarray(data)
 
@@ -2744,7 +2805,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             >>> path = iris.sample_data_path('ostia_monthly.nc')
             >>> cube = iris.load_cube(path)
             >>> new_cube = cube.collapsed('longitude', iris.analysis.MEAN)
-            >>> print new_cube
+            >>> print(new_cube)
             surface_temperature / (K)           (time: 54; latitude: 18)
                  Dimension coordinates:
                       time                           x             -
@@ -2905,10 +2966,10 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             data_result = aggregator.aggregate(unrolled_data,
                                                axis=-1,
                                                **kwargs)
-
         aggregator.update_metadata(collapsed_cube, coords, axis=collapse_axis,
                                    **kwargs)
-        result = aggregator.post_process(collapsed_cube, data_result, **kwargs)
+        result = aggregator.post_process(collapsed_cube, data_result, coords,
+                                         **kwargs)
         return result
 
     def aggregated_by(self, coords, aggregator, **kwargs):
@@ -2954,7 +3015,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             >>> cube = iris.load_cube(fname, 'surface_temperature')
             >>> cat.add_year(cube, 'time', name='year')
             >>> new_cube = cube.aggregated_by('year', iris.analysis.MEAN)
-            >>> print new_cube
+            >>> print(new_cube)
             surface_temperature / (K)           \
 (time: 5; latitude: 18; longitude: 432)
                  Dimension coordinates:
@@ -2985,11 +3046,11 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         # We can't handle weights
         if isinstance(aggregator, iris.analysis.WeightedAggregator) and \
                 aggregator.uses_weighting(**kwargs):
-            raise ValueError('Invalid Aggregation, aggergated_by() cannot use'
+            raise ValueError('Invalid Aggregation, aggregated_by() cannot use'
                              ' weights.')
 
-        for coord in sorted(self._as_list_of_coords(coords),
-                            key=lambda coord: coord._as_defn()):
+        coords = self._as_list_of_coords(coords)
+        for coord in sorted(coords, key=lambda coord: coord._as_defn()):
             if coord.ndim > 1:
                 msg = 'Cannot aggregate_by coord %s as it is ' \
                       'multidimensional.' % coord.name()
@@ -3015,7 +3076,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         groupby = iris.analysis._Groupby(groupby_coords, shared_coords)
 
         # Create the resulting aggregate-by cube and remove the original
-        # coordinates which are going to be groupedby.
+        # coordinates that are going to be groupedby.
         key = [slice(None, None)] * self.ndim
         # Generate unique index tuple key to maintain monotonicity.
         key[dimension_to_groupby] = tuple(range(len(groupby)))
@@ -3025,7 +3086,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             aggregateby_cube.remove_coord(coord)
 
         # Determine the group-by cube data shape.
-        data_shape = list(self.shape)
+        data_shape = list(self.shape + aggregator.aggregate_shape(**kwargs))
         data_shape[dimension_to_groupby] = len(groupby)
 
         # Aggregate the group-by data.
@@ -3069,8 +3130,11 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             else:
                 aggregateby_cube.add_aux_coord(coord.copy(),
                                                dimension_to_groupby)
-        # Attatch the aggregate-by data into the aggregate-by cube.
-        aggregateby_cube.data = aggregateby_data
+
+        # Attach the aggregate-by data into the aggregate-by cube.
+        aggregateby_cube = aggregator.post_process(aggregateby_cube,
+                                                   aggregateby_data,
+                                                   coords, **kwargs)
 
         return aggregateby_cube
 
@@ -3108,7 +3172,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             >>> import iris, iris.analysis
             >>> fname = iris.sample_data_path('GloSea4', 'ensemble_010.pp')
             >>> air_press = iris.load_cube(fname, 'surface_temperature')
-            >>> print air_press
+            >>> print(air_press)
             surface_temperature / (K)           \
 (time: 6; latitude: 145; longitude: 192)
                  Dimension coordinates:
@@ -3132,7 +3196,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                       mean: time (1 hour)
 
 
-            >>> print air_press.rolling_window('time', iris.analysis.MEAN, 3)
+            >>> print(air_press.rolling_window('time', iris.analysis.MEAN, 3))
             surface_temperature / (K)           \
 (time: 4; latitude: 145; longitude: 192)
                  Dimension coordinates:
@@ -3238,7 +3302,6 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             **kwargs)
         # and perform the data transformation, generating weights first if
         # needed
-        newkwargs = {}
         if isinstance(aggregator, iris.analysis.WeightedAggregator) and \
                 aggregator.uses_weighting(**kwargs):
             if 'weights' in kwargs.keys():
@@ -3247,40 +3310,46 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                     raise ValueError('Weights for rolling window aggregation '
                                      'must be a 1d array with the same length '
                                      'as the window.')
-                newkwargs['weights'] = iris.util.broadcast_to_shape(
+                kwargs = dict(kwargs)
+                kwargs['weights'] = iris.util.broadcast_to_shape(
                     weights, rolling_window_data.shape, (dimension + 1,))
-        new_cube.data = aggregator.aggregate(rolling_window_data,
-                                             axis=dimension + 1,
-                                             **newkwargs)
-
-        return new_cube
+        data_result = aggregator.aggregate(rolling_window_data,
+                                           axis=dimension + 1,
+                                           **kwargs)
+        result = aggregator.post_process(new_cube, data_result, [coord],
+                                         **kwargs)
+        return result
 
     def interpolate(self, sample_points, scheme, collapse_scalar=True):
         """
-        Interpolate over the :class:`~iris.cube.Cube` using the specified
-        sample points and provided interpolation scheme.
+        Interpolate from this :class:`~iris.cube.Cube` to the given
+        sample points using the given interpolation scheme.
 
         Args:
 
         * sample_points:
             A sequence of (coordinate, points) pairs over which to
-            interpolate. The values for coordinates which correspond to
-            date/times may optionally be supplied as datetime.datetime or
+            interpolate. The values for coordinates that correspond to
+            dates or times may optionally be supplied as datetime.datetime or
             netcdftime.datetime instances.
         * scheme:
-            A :class:`~iris.analysis.Linear` instance, which defines the
-            interpolator scheme.
+            The type of interpolation to use to interpolate from this
+            :class:`~iris.cube.Cube` to the given sample points. The
+            interpolation schemes currently available in Iris are:
+                * :class:`iris.analysis.Linear`, and
+                * :class:`iris.analysis.Nearest`.
 
         Kwargs:
 
         * collapse_scalar:
-            Whether to collapse the dimension of the scalar sample points
+            Whether to collapse the dimension of scalar sample points
             in the resulting cube. Default is True.
 
         Returns:
-            A cube interpolated at the given sample points. The dimensionality
-            of the cube will be the number of original cube dimensions minus
-            the number of scalar coordinates, if collapse_scalar is True.
+            A cube interpolated at the given sample points.
+            If `collapse_scalar` is True then the dimensionality of the cube
+            will be the number of original cube dimensions minus
+            the number of scalar coordinates.
 
         For example:
 
@@ -3288,37 +3357,37 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             >>> import iris
             >>> path = iris.sample_data_path('uk_hires.pp')
             >>> cube = iris.load_cube(path, 'air_potential_temperature')
-            >>> print cube.summary(shorten=True)
+            >>> print(cube.summary(shorten=True))
             air_potential_temperature / (K)     \
 (time: 3; model_level_number: 7; grid_latitude: 204; grid_longitude: 187)
-            >>> print cube.coord('time')
+            >>> print(cube.coord('time'))
             DimCoord([2009-11-19 10:00:00, 2009-11-19 11:00:00, \
 2009-11-19 12:00:00], standard_name='time', calendar='gregorian')
-            >>> print cube.coord('time').points
+            >>> print(cube.coord('time').points)
             [ 349618.  349619.  349620.]
             >>> samples = [('time', 349618.5)]
             >>> result = cube.interpolate(samples, iris.analysis.Linear())
-            >>> print result.summary(shorten=True)
+            >>> print(result.summary(shorten=True))
             air_potential_temperature / (K)     \
 (model_level_number: 7; grid_latitude: 204; grid_longitude: 187)
-            >>> print result.coord('time')
+            >>> print(result.coord('time'))
             DimCoord([2009-11-19 10:30:00], standard_name='time', \
 calendar='gregorian')
-            >>> print result.coord('time').points
+            >>> print(result.coord('time').points)
             [ 349618.5]
             >>> # For datetime-like coordinates, we can also use
             >>> # datetime-like objects.
             >>> samples = [('time', datetime.datetime(2009, 11, 19, 10, 30))]
             >>> result2 = cube.interpolate(samples, iris.analysis.Linear())
-            >>> print result2.summary(shorten=True)
+            >>> print(result2.summary(shorten=True))
             air_potential_temperature / (K)     \
 (model_level_number: 7; grid_latitude: 204; grid_longitude: 187)
-            >>> print result2.coord('time')
+            >>> print(result2.coord('time'))
             DimCoord([2009-11-19 10:30:00], standard_name='time', \
 calendar='gregorian')
-            >>> print result2.coord('time').points
+            >>> print(result2.coord('time').points)
             [ 349618.5]
-            >>> print result == result2
+            >>> print(result == result2)
             True
 
         """
@@ -3328,23 +3397,26 @@ calendar='gregorian')
 
     def regrid(self, grid, scheme):
         """
-        Regrid this :class:`~iris.cube.Cube` on to the given `grid`
-        using the provided regridding scheme.
+        Regrid this :class:`~iris.cube.Cube` on to the given target `grid`
+        using the given regridding `scheme`.
 
         Args:
 
         * grid:
-            A :class:`~iris.cube.Cube` which defines the target grid.
+            A :class:`~iris.cube.Cube` that defines the target grid.
         * scheme:
-            A :class:`~iris.analysis.Linear` or
-            :class:`~iris.analysis.AreaWeighted` instance, which defines
-            the interpolator scheme.
+            The type of regridding to use to regrid this cube onto the
+            target grid. The regridding schemes currently available
+            in Iris are:
+                * :class:`iris.analysis.Linear`,
+                * :class:`iris.analysis.Nearest`, and
+                * :class:`iris.analysis.AreaWeighted`.
 
         Returns:
-            A cube defined with the horizontal dimensions of the target
+            A cube defined with the horizontal dimensions of the target grid
             and the other dimensions from this cube. The data values of
             this cube will be converted to values on the new grid
-            according to the given scheme.
+            according to the given regridding scheme.
 
         """
         regridder = scheme.regridder(self, grid)
@@ -3444,7 +3516,7 @@ class _SliceIterator(collections.Iterator):
 
     def next(self):
         # NB. When self._ndindex runs out it will raise StopIteration for us.
-        index_tuple = self._ndindex.next()
+        index_tuple = next(self._ndindex)
 
         # Turn the given tuple into a list so that we can do something with it
         index_list = list(index_tuple)

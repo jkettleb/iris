@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -18,10 +18,12 @@
 Test the interpolation of Iris cubes.
 
 """
+
+from __future__ import (absolute_import, division, print_function)
+
 # import iris tests first so that some things can be initialised before importing anything else
 import iris.tests as tests
 
-import biggus
 import numpy as np
 import numpy.ma as ma
 from scipy.interpolate import interp1d
@@ -56,32 +58,32 @@ class TestLinearExtrapolator(tests.IrisTest):
         
         # 2 Non-extrapolation point
         np.testing.assert_array_equal(r(np.array([1.5, 2])), np.array([[  6.,   7.,   8.,   9.],
-                                                                                [  8.,   9.,  10.,  11.]]))
+                                                                       [  8.,   9.,  10.,  11.]]))
         
         # 1 Non-extrapolation point & 1 upper value extrapolation
         np.testing.assert_array_equal(r(np.array([1.5, 3])), np.array([[  6.,   7.,   8.,   9.],
-                                                                                [ 12.,  13.,  14.,  15.]]))
+                                                                       [ 12.,  13.,  14.,  15.]]))
         
         # 2 upper value extrapolation
         np.testing.assert_array_equal(r(np.array([2.5, 3])), np.array([[ 10.,  11.,  12.,  13.],
-                                                                                [ 12.,  13.,  14.,  15.]]))
+                                                                       [ 12.,  13.,  14.,  15.]]))
 
         # 1 lower value extrapolation & 1 Non-extrapolation point
         np.testing.assert_array_equal(r(np.array([-1, 1.5])), np.array([[-4., -3., -2., -1.],
-                                                                                 [ 6.,  7.,  8.,  9.]]))
+                                                                        [ 6.,  7.,  8.,  9.]]))
 
         # 2 lower value extrapolation
         np.testing.assert_array_equal(r(np.array([-1.5, -1])), np.array([[-6., -5., -4., -3.],
-                                                                                  [-4., -3., -2., -1.]]))
+                                                                         [-4., -3., -2., -1.]]))
         
         # 2 lower value extrapolation, 2 Non-extrapolation point & 2 upper value extrapolation
         np.testing.assert_array_equal(r(np.array([-1.5, -1, 1, 1.5, 2.5, 3])),
                                          np.array([[ -6.,  -5.,  -4.,  -3.],
-                                                      [ -4.,  -3.,  -2.,  -1.],
-                                                      [  4.,   5.,   6.,   7.],
-                                                      [  6.,   7.,   8.,   9.],
-                                                      [ 10.,  11.,  12.,  13.],
-                                                      [ 12.,  13.,  14.,  15.]]))
+                                                   [ -4.,  -3.,  -2.,  -1.],
+                                                   [  4.,   5.,   6.,   7.],
+                                                   [  6.,   7.,   8.,   9.],
+                                                   [ 10.,  11.,  12.,  13.],
+                                                   [ 12.,  13.,  14.,  15.]]))
    
     def test_simple_axis1(self):
         a = np.arange(12).reshape(3, 4)
@@ -105,34 +107,34 @@ class TestLinearExtrapolator(tests.IrisTest):
         
         # 2 Non-extrapolation point 
         np.testing.assert_array_equal(r(np.array([1.5, 2])), np.array([[  1.5,   2. ],
-                                                                                [  5.5,   6. ],
-                                                                                [  9.5,  10. ]]))
+                                                                       [  5.5,   6. ],
+                                                                       [  9.5,  10. ]]))
         
         # 1 Non-extrapolation point & 1 upper value extrapolation
         np.testing.assert_array_equal(r(np.array([1.5, 5])), np.array([[  1.5,   5. ],
-                                                                                [  5.5,   9. ],
-                                                                                [  9.5,  13. ]]))
+                                                                       [  5.5,   9. ],
+                                                                       [  9.5,  13. ]]))
         
         # 2 upper value extrapolation        
         np.testing.assert_array_equal(r(np.array([4.5, 5])), np.array([[  4.5,   5. ],
-                                                                                [  8.5,   9. ],
-                                                                                [ 12.5,  13. ]]))
+                                                                       [  8.5,   9. ],
+                                                                       [ 12.5,  13. ]]))
 
         # 1 lower value extrapolation & 1 Non-extrapolation point
         np.testing.assert_array_equal(r(np.array([-0.5, 1.5])), np.array([[-0.5,  1.5],
-                                                                                   [ 3.5,  5.5],
-                                                                                   [ 7.5,  9.5]]))        
+                                                                          [ 3.5,  5.5],
+                                                                          [ 7.5,  9.5]]))
         
         # 2 lower value extrapolation
         np.testing.assert_array_equal(r(np.array([-1.5, -1])), np.array([[-1.5, -1. ],
-                                                                                  [ 2.5,  3. ],
-                                                                                  [ 6.5,  7. ]]))
+                                                                         [ 2.5,  3. ],
+                                                                         [ 6.5,  7. ]]))
         
         # 2 lower value extrapolation, 2 Non-extrapolation point & 2 upper value extrapolation
         np.testing.assert_array_equal(r(np.array([-1.5, -1, 1.5, 2, 4.5, 5])), 
-                                         np.array([[ -1.5,  -1. ,   1.5,   2. ,   4.5,   5. ],
-                                                      [  2.5,   3. ,   5.5,   6. ,   8.5,   9. ],
-                                                      [  6.5,   7. ,   9.5,  10. ,  12.5,  13. ]]))
+                                      np.array([[ -1.5, -1., 1.5,  2.,  4.5,  5. ],
+                                                [  2.5,  3., 5.5,  6.,  8.5,  9. ],
+                                                [  6.5,  7., 9.5, 10., 12.5, 13. ]]))
         
         
     def test_simple_3d_axis1(self):
@@ -157,49 +159,49 @@ class TestLinearExtrapolator(tests.IrisTest):
 #         ] 
 
         np.testing.assert_array_equal(r(0), np.array([[  0.,   1.],
-                                                            [  8.,   9.],
-                                                            [ 16.,  17.]]))
+                                                      [  8.,   9.],
+                                                      [ 16.,  17.]]))
         
         np.testing.assert_array_equal(r(1), np.array([[  2.,   3.],
-                                                            [ 10.,  11.],
-                                                            [ 18.,  19.]]))
+                                                      [ 10.,  11.],
+                                                      [ 18.,  19.]]))
         
         np.testing.assert_array_equal(r(-1), np.array([[ -2.,  -1.],
-                                                             [  6.,   7.],
-                                                             [ 14.,  15.]]))
+                                                       [  6.,   7.],
+                                                       [ 14.,  15.]]))
         
         np.testing.assert_array_equal(r(4), np.array([[  8.,   9.],
-                                                            [ 16.,  17.],
-                                                            [ 24.,  25.]]))
+                                                      [ 16.,  17.],
+                                                      [ 24.,  25.]]))
 
         np.testing.assert_array_equal(r(0.25), np.array([[  0.5,   1.5],
-                                                               [  8.5,   9.5],
-                                                               [ 16.5,  17.5]]))
+                                                         [  8.5,   9.5],
+                                                         [ 16.5,  17.5]]))
         
         np.testing.assert_array_equal(r(-0.25), np.array([[ -0.5,   0.5],
-                                                                [  7.5,   8.5],
-                                                                [ 15.5,  16.5]]))
+                                                          [  7.5,   8.5],
+                                                          [ 15.5,  16.5]]))
         
         np.testing.assert_array_equal(r(4.25), np.array([[  8.5,   9.5],
-                                                               [ 16.5,  17.5],
-                                                               [ 24.5,  25.5]]))
+                                                         [ 16.5,  17.5],
+                                                         [ 24.5,  25.5]]))
         
         np.testing.assert_array_equal(r(np.array([0.5, 1])), np.array([[[  1.,   2.], [  2.,   3.]],
-                                                                                [[  9.,  10.], [ 10.,  11.]],
-                                                                                [[ 17.,  18.], [ 18.,  19.]]]))
+                                                                       [[  9.,  10.], [ 10.,  11.]],
+                                                                       [[ 17.,  18.], [ 18.,  19.]]]))
         
         np.testing.assert_array_equal(r(np.array([0.5, 4])), np.array([[[  1.,   2.], [  8.,   9.]],
-                                                                                [[  9.,  10.], [ 16.,  17.]],
-                                                                                [[ 17.,  18.], [ 24.,  25.]]]))
+                                                                       [[  9.,  10.], [ 16.,  17.]],
+                                                                       [[ 17.,  18.], [ 24.,  25.]]]))
 
         np.testing.assert_array_equal(r(np.array([-0.5, 0.5])), np.array([[[ -1.,   0.], [  1.,   2.]],
-                                                                                   [[  7.,   8.], [  9.,  10.]],
-                                                                                   [[ 15.,  16.], [ 17.,  18.]]]))        
+                                                                          [[  7.,   8.], [  9.,  10.]],
+                                                                          [[ 15.,  16.], [ 17.,  18.]]]))
 
         np.testing.assert_array_equal(r(np.array([-1.5, -1, 0.5, 1, 4.5, 5])), 
                                          np.array([[[ -3.,  -2.], [ -2.,  -1.], [  1.,   2.], [  2.,   3.], [  9.,  10.], [ 10.,  11.]],
-                                                      [[  5.,   6.], [  6.,   7.], [  9.,  10.], [ 10.,  11.], [ 17.,  18.], [ 18.,  19.]],
-                                                      [[ 13.,  14.], [ 14.,  15.], [ 17.,  18.], [ 18.,  19.], [ 25.,  26.], [ 26.,  27.]]]))
+                                                   [[  5.,   6.], [  6.,   7.], [  9.,  10.], [ 10.,  11.], [ 17.,  18.], [ 18.,  19.]],
+                                                   [[ 13.,  14.], [ 14.,  15.], [ 17.,  18.], [ 18.,  19.], [ 25.,  26.], [ 26.,  27.]]]))
         
     def test_variable_gradient(self):
         a = np.array([[2, 4, 8], [0, 5, 11]])
@@ -208,13 +210,13 @@ class TestLinearExtrapolator(tests.IrisTest):
         np.testing.assert_array_equal(r(0), np.array([ 2.,  4.,  8.]))
         np.testing.assert_array_equal(r(-1), np.array([ 4.,  3.,  5.]))
         np.testing.assert_array_equal(r(3), np.array([ -4.,   7.,  17.]))        
-        np.testing.assert_array_equal(r(2.5), np.array([ -3. ,   6.5,  15.5]))
+        np.testing.assert_array_equal(r(2.5), np.array([ -3.,   6.5,  15.5]))
         
-        np.testing.assert_array_equal(r(np.array([1.5, 2])), np.array([[ -1. ,   5.5,  12.5],
-                                                                                [ -2. ,   6. ,  14. ]]))
+        np.testing.assert_array_equal(r(np.array([1.5, 2])), np.array([[ -1.,   5.5,  12.5],
+                                                                       [ -2.,   6.,  14. ]]))
     
-        np.testing.assert_array_equal(r(np.array([-1.5, 3.5])), np.array([[  5. ,   2.5,   3.5],
-                                                                                   [ -5. ,   7.5,  18.5]]))
+        np.testing.assert_array_equal(r(np.array([-1.5, 3.5])), np.array([[  5.,   2.5,   3.5],
+                                                                          [ -5.,   7.5,  18.5]]))
 
 
 class TestLinearLengthOneCoord(tests.IrisTest):
@@ -404,13 +406,13 @@ class TestLinear1dInterpolation(tests.IrisTest):
         cube = self.simple2d_cube
         cube.coord('dim1').guess_bounds()
         r = iris.analysis.interpolate.linear(cube, [('dim1', [4, 5])])
-        np.testing.assert_array_equal(r.data, np.array([[ 1.5,  2.5,  3.5], [ 3. ,  4. ,  5. ]]))
+        np.testing.assert_array_equal(r.data, np.array([[ 1.5,  2.5,  3.5], [ 3.,  4.,  5. ]]))
         normalise_order(r)
         self.assertCML(r, ('analysis', 'interpolation', 'linear', 'simple_multiple_points.cml'))
 
     def test_simple_multiple_point(self):
         r = iris.analysis.interpolate.linear(self.simple2d_cube, [('dim1', [4, 5])])
-        np.testing.assert_array_equal(r.data, np.array([[ 1.5,  2.5,  3.5], [ 3. ,  4. ,  5. ]]))
+        np.testing.assert_array_equal(r.data, np.array([[ 1.5,  2.5,  3.5], [ 3.,  4.,  5. ]]))
         normalise_order(r)
         self.assertCML(r, ('analysis', 'interpolation', 'linear', 'simple_multiple_points.cml'))
         
@@ -429,7 +431,7 @@ class TestLinear1dInterpolation(tests.IrisTest):
         self.assertCML(r, ('analysis', 'interpolation', 'linear', 'circular_vs_non_circular.cml'))
 
     def test_simple_multiple_points_circular(self):
-        r = iris.analysis.interpolate.linear(self.simple2d_cube_circular, [('theta', [0. , 60. , 120. , 180. ])])
+        r = iris.analysis.interpolate.linear(self.simple2d_cube_circular, [('theta', [0., 60., 120., 180.])])
         normalise_order(r)
         self.assertCML(r, ('analysis', 'interpolation', 'linear', 'simple_multiple_points_circular.cml'))
         
@@ -514,7 +516,7 @@ class TestLinear1dInterpolation(tests.IrisTest):
         cube = tests.stock.realistic_4d_w_missing_data()
         cube = cube[0, 2, 18::-1]
         cube.coord('grid_longitude').circular = True
-        _ = iris.analysis.interpolate.linear(cube, [('grid_longitude',0), ('grid_latitude',0)])
+        _ = iris.analysis.interpolate.linear(cube, [('grid_longitude', 0), ('grid_latitude', 0)])
         # Did np.append go wrong?
         self.assertArrayEqual(cube.data.data.shape, cube.data.mask.shape)
     
@@ -525,7 +527,7 @@ class TestLinear1dInterpolation(tests.IrisTest):
         cube.data = ma.arange(np.product(cube.shape), dtype=np.float32).reshape(cube.shape)
         cube.coord('grid_longitude').circular = True
         # There's no result to test, just make sure we don't cause an exception with the scalar mask.
-        _ = iris.analysis.interpolate.linear(cube, [('grid_longitude',0), ('grid_latitude',0)])
+        _ = iris.analysis.interpolate.linear(cube, [('grid_longitude', 0), ('grid_latitude', 0)])
 
 
 @tests.skip_data
@@ -710,206 +712,6 @@ class TestNearestNeighbour(tests.IrisTest):
             for point_val in lon_test_vals]
         lon_nearest_vals = [lon_coord_vals[i[1]] for i in lon_nearest_inds]
         self.assertArrayAlmostEqual(lon_nearest_vals, lon_expect_vals)
-
-
-class TestNearestNeighbourAdditional(tests.IrisTest):
-    """
-    More detailed testing for coordinate nearest_neighbour function.
-
-    Includes (especially) circular operation.
-
-    """
-    def _test_nn_breakpoints(self, points, breaks, expected,
-                             bounds=None, guess_bounds=False, bounds_point=0.2,
-                             circular=False,
-                             test_min=-500.0, test_max=750.0):
-        """
-        Make a test coordinate + test the nearest-neighbour calculation
-
-        Check that the result index changes at the specified points.
-        Includes support for circular and bounded cases.
-
-        Args:
-
-            points : 1-d array-like
-                Points of the test coordinate (see also Kwargs)
-            breaks : list
-                Input points at which we expect the output result to change
-            expected : list
-                Expected results (cell index values)
-                Length must == len(breaks) + 1
-                result == expected[i] between breaks[i] and breaks[i+1]
-
-        Kwargs:
-
-            bounds : 2d array-like
-                use these bounds
-            guess_bounds, bounds_point : bool, float
-                use guessed bounds
-            circular : bool
-                make a circular coordinate (360 degrees)
-            test_min, test_max : float
-                outer extreme values (non-circular only)
-
-        """
-        points = np.array(points, np.float)
-        if bounds:
-            bounds = np.array(bounds, np.float)
-        assert len(expected) == len(breaks) + 1
-        if circular:
-            breaks = np.array(breaks)
-            breaks = np.hstack([i * 360.0 + breaks for i in range(-2, 3)])
-            lower_lims = breaks[:-1]
-            upper_lims = breaks[1:]
-            expected = np.hstack([expected[1:] for i in range(-2, 3)])
-        else:
-            lower_lims = np.hstack(([test_min], breaks))
-            upper_lims = np.hstack((breaks, [test_max]))
-
-        # construct coord : AuxCoord, or DimCoord if it needs to be circular
-        if circular:
-            test_coord = iris.coords.DimCoord(points,
-                                              bounds=bounds,
-                                              long_name='x',
-                                              units=iris.unit.Unit('degrees'),
-                                              circular=True)
-        else:
-            test_coord = iris.coords.AuxCoord(points,
-                                              bounds=bounds,
-                                              long_name='x',
-                                              units=iris.unit.Unit('degrees'))
-        if guess_bounds:
-            test_coord.guess_bounds(bounds_point)
-
-        # test at a few 'random' points within each supposed result region
-        test_fractions = np.array([0.01, 0.2, 0.45, 0.75, 0.99])
-        for (lower, upper, expect) in zip(lower_lims, upper_lims, expected):
-            test_pts = lower + test_fractions * (upper - lower)
-            results = [test_coord.nearest_neighbour_index(x) for x in test_pts]
-            self.assertTrue(np.all([r == expect for r in results]))
-
-    def test_nearest_neighbour_circular(self):
-        # First test (simplest): ascending-order, unbounded
-        points = [0.0, 90.0, 180.0, 270.0]
-        breaks = [45.0, 135.0, 225.0]
-        results = [0, 1, 2, 3]
-        self._test_nn_breakpoints(points, breaks, results)
-
-        # same, but *CIRCULAR*
-        breaks_circ = [-45.0] + breaks
-        results_circ = [3] + results
-        self._test_nn_breakpoints(points, breaks_circ, results_circ,
-                                  circular=True)
-
-        # repeat circular test with different coordinate offsets
-        offset = 32.7
-        points_offset = np.array(points) + offset
-        breaks_offset = np.array(breaks_circ) + offset
-        self._test_nn_breakpoints(points_offset, breaks_offset, results_circ,
-                                  circular=True)
-
-        offset = -106.3
-        points_offset = np.array(points) + offset
-        breaks_offset = np.array(breaks_circ) + offset
-        self._test_nn_breakpoints(points_offset, breaks_offset, results_circ,
-                                  circular=True)
-
-        # ascending order, guess-bounded
-        # N.B. effect of bounds_position = 2/3
-        #   x_bounds = [[-60, 30], [30, 120], [120, 210], [210, 300]]
-        points = [0.0, 90, 180, 270]
-        breaks = [30.0, 120.0, 210.0]
-        results = [0, 1, 2, 3]
-        self._test_nn_breakpoints(points, breaks, results,
-                                  guess_bounds=True, bounds_point=2.0 / 3)
-
-        # same but circular...
-        breaks_circ = [-60.0] + breaks
-        results_circ = [3] + results
-        self._test_nn_breakpoints(points, breaks_circ, results_circ,
-                                  guess_bounds=True, bounds_point=2.0 / 3,
-                                  circular=True)
-
-    def test_nearest_neighbour_descending_circular(self):
-        # descending order, unbounded
-        points = [270.0, 180, 90, 0]
-        breaks = [45.0, 135.0, 225.0]
-        results = [3, 2, 1, 0]
-        self._test_nn_breakpoints(points, breaks, results)
-
-        # same but circular...
-        breaks = [-45.0] + breaks
-        results = [0] + results
-        self._test_nn_breakpoints(points, breaks, results, circular=True)
-
-        # repeat circular test with different coordinate offsets
-        offset = 32.7
-        points_offset = np.array(points) + offset
-        breaks_offset = np.array(breaks) + offset
-        self._test_nn_breakpoints(points_offset, breaks_offset, results,
-                                  circular=True)
-
-        offset = -106.3
-        points_offset = np.array(points) + offset
-        breaks_offset = np.array(breaks) + offset
-        self._test_nn_breakpoints(points_offset, breaks_offset, results,
-                                  circular=True)
-
-        # descending order, guess-bounded
-        points = [250.0, 150, 50, -50]
-        # N.B. equivalent effect of bounds_position = 0.4
-        # x_bounds = [[290, 190], [190, 90], [90, -10], [-10, -110]]
-        breaks = [-10.0, 90.0, 190.0]
-        results = [3, 2, 1, 0]
-        self._test_nn_breakpoints(points, breaks, results,
-                                  guess_bounds=True, bounds_point=0.4)
-        # same but circular...
-        breaks = [-110.0] + breaks
-        results = [0] + results
-        self._test_nn_breakpoints(points, breaks, results,
-                                  guess_bounds=True, bounds_point=0.4,
-                                  circular=True)
-
-    def test_nearest_neighbour_odd_bounds(self):
-        # additional: test with overlapping bounds
-        points = [0.0, 90, 180, 270]
-        bounds = [[-90.0, 90], [0, 180], [90, 270], [180, 360]]
-        breaks = [45.0, 135.0, 225.0]
-        results = [0, 1, 2, 3]
-        self._test_nn_breakpoints(points, breaks, results, bounds=bounds)
-
-        # additional: test with disjoint bounds
-        points = [40.0, 90, 150, 270]
-        bounds = [[0, 60], [70, 90], [140, 200], [210, 360]]
-        breaks = [65.0, 115.0, 205.0]
-        results = [0, 1, 2, 3]
-        self._test_nn_breakpoints(points, breaks, results, bounds=bounds)
-
-    def test_nearest_neighbour_scalar(self):
-        points = [1.0]
-        breaks = []
-        results = [0]
-        self._test_nn_breakpoints(points, breaks, results)
-
-    def test_nearest_neighbour_nonmonotonic(self):
-        # a bounded example
-        points = [3.0,  4.0,  1.0,  7.0, 10.0]
-        bounds = [[2.5,  3.5],
-                  [3.5,  4.5],
-                  [0.5,  1.5],
-                  [6.5,  7.5],
-                  [9.5, 10.5]]
-        breaks = [2.0, 3.5, 5.5, 8.5]
-        results = [2, 0, 1, 3, 4]
-        self._test_nn_breakpoints(points, breaks, results, bounds=bounds)
-
-        # a pointwise example
-        points = [3.0,  3.5,  1.0,  8.0, 12.0]
-        breaks = [2.0, 3.25, 5.75, 10.0]
-        results = [2, 0, 1, 3, 4]
-        self._test_nn_breakpoints(points, breaks, results)
-
-        # NOTE: no circular cases, as AuxCoords _cannot_ be circular.
 
 
 if __name__ == "__main__":

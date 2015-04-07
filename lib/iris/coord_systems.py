@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -19,11 +19,13 @@ Definitions of coordinate systems.
 
 """
 
-from __future__ import division
+from __future__ import (absolute_import, division, print_function)
+
 from abc import ABCMeta, abstractmethod
 import warnings
 
-import cartopy.crs
+import cartopy
+import cartopy.crs as ccrs
 
 
 class CoordSystem(object):
@@ -222,17 +224,17 @@ class GeogCS(CoordSystem):
         return CoordSystem.xml_element(self, doc, attrs)
 
     def as_cartopy_crs(self):
-        return cartopy.crs.Geodetic(self.as_cartopy_globe())
+        return ccrs.Geodetic(self.as_cartopy_globe())
 
     def as_cartopy_projection(self):
-        return cartopy.crs.PlateCarree()
+        return ccrs.PlateCarree()
 
     def as_cartopy_globe(self):
         # Explicitly set `ellipse` to None as a workaround for
         # Cartopy setting WGS84 as the default.
-        return cartopy.crs.Globe(semimajor_axis=self.semi_major_axis,
-                                 semiminor_axis=self.semi_minor_axis,
-                                 ellipse=None)
+        return ccrs.Globe(semimajor_axis=self.semi_major_axis,
+                          semiminor_axis=self.semi_minor_axis,
+                          ellipse=None)
 
 
 class RotatedGeogCS(CoordSystem):
@@ -313,13 +315,30 @@ class RotatedGeogCS(CoordSystem):
     def xml_element(self, doc):
         return CoordSystem.xml_element(self, doc, self._pretty_attrs())
 
+    def _ccrs_kwargs(self):
+        globe = None
+        if self.ellipsoid is not None:
+            globe = self.ellipsoid.as_cartopy_globe()
+        # Cartopy v0.12 provided the new arg north_pole_grid_longitude
+        cartopy_kwargs = {'pole_longitude': self.grid_north_pole_longitude,
+                          'pole_latitude': self.grid_north_pole_latitude,
+                          'globe': globe}
+
+        if cartopy.__version__ < '0.12':
+            warnings.warn('"central_rotated_longitude" is not supported by '
+                          'cartopy{} and has been ignored in the '
+                          'creation of the cartopy '
+                          'projection/crs.'.format(cartopy.__version__))
+        else:
+            crl = 'central_rotated_longitude'
+            cartopy_kwargs[crl] = self.north_pole_grid_longitude
+        return cartopy_kwargs
+
     def as_cartopy_crs(self):
-        return cartopy.crs.RotatedGeodetic(self.grid_north_pole_longitude,
-                                           self.grid_north_pole_latitude)
+        return ccrs.RotatedGeodetic(**self._ccrs_kwargs())
 
     def as_cartopy_projection(self):
-        return cartopy.crs.RotatedPole(self.grid_north_pole_longitude,
-                                       self.grid_north_pole_latitude)
+        return ccrs.RotatedPole(**self._ccrs_kwargs())
 
 
 class TransverseMercator(CoordSystem):
@@ -405,7 +424,7 @@ class TransverseMercator(CoordSystem):
         else:
             globe = None
 
-        return cartopy.crs.TransverseMercator(
+        return ccrs.TransverseMercator(
             central_longitude=self.longitude_of_central_meridian,
             central_latitude=self.latitude_of_projection_origin,
             false_easting=self.false_easting,
@@ -425,10 +444,10 @@ class OSGB(TransverseMercator):
                                     GeogCS(6377563.396, 6356256.909))
 
     def as_cartopy_crs(self):
-        return cartopy.crs.OSGB()
+        return ccrs.OSGB()
 
     def as_cartopy_projection(self):
-        return cartopy.crs.OSGB()
+        return ccrs.OSGB()
 
 
 class Orthographic(CoordSystem):
@@ -496,12 +515,12 @@ class Orthographic(CoordSystem):
         if self.ellipsoid is not None:
             globe = self.ellipsoid.as_cartopy_globe()
         else:
-            globe = cartopy.crs.Globe()
+            globe = ccrs.Globe()
 
         warnings.warn('Discarding false_easting and false_northing that are '
                       'not used by Cartopy.')
 
-        return cartopy.crs.Orthographic(
+        return ccrs.Orthographic(
             central_longitude=self.longitude_of_projection_origin,
             central_latitude=self.latitude_of_projection_origin,
             globe=globe)
@@ -533,7 +552,8 @@ class VerticalPerspective(CoordSystem):
             True longitude of planar origin in degrees.
 
         * perspective_point_height:
-            Altitude of satellite in metres.
+            Altitude of satellite in metres above the surface of the
+            ellipsoid.
 
         * false_easting
             X offset from planar origin in metres. Defaults to 0.
@@ -590,9 +610,9 @@ class VerticalPerspective(CoordSystem):
         if self.ellipsoid is not None:
             globe = self.ellipsoid.as_cartopy_globe()
         else:
-            globe = cartopy.crs.Globe()
+            globe = ccrs.Globe()
 
-        return cartopy.crs.Geostationary(
+        return ccrs.Geostationary(
             central_longitude=self.longitude_of_projection_origin,
             satellite_height=self.perspective_point_height,
             false_easting=self.false_easting,
@@ -673,8 +693,8 @@ class Stereographic(CoordSystem):
         if self.ellipsoid is not None:
             globe = self.ellipsoid.as_cartopy_globe()
         else:
-            globe = cartopy.crs.Globe()
-        return cartopy.crs.Stereographic(
+            globe = ccrs.Globe()
+        return ccrs.Stereographic(
             self.central_lat, self.central_lon,
             self.false_easting, self.false_northing,
             self.true_scale_lat, globe)
@@ -736,7 +756,7 @@ class LambertConformal(CoordSystem):
         self.false_easting = false_easting
         #: Y offset from planar origin in metres.
         self.false_northing = false_northing
-        #: Latitudes of secant intersection.
+        #: The two standard parallels of the cone.
         self.secant_latitudes = secant_latitudes
         #: Ellipsoid definition.
         self.ellipsoid = ellipsoid
@@ -761,12 +781,20 @@ class LambertConformal(CoordSystem):
         if self.ellipsoid is not None:
             globe = self.ellipsoid.as_cartopy_globe()
         else:
-            globe = cartopy.crs.Globe()
+            globe = ccrs.Globe()
 
-        return cartopy.crs.LambertConformal(
-            self.central_lon, self.central_lat,
-            self.false_easting, self.false_northing,
-            self.secant_latitudes, globe, cutoff)
+        # Cartopy v0.12 deprecated the use of secant_latitudes.
+        if cartopy.__version__ < '0.12':
+            conic_position = dict(secant_latitudes=self.secant_latitudes)
+        else:
+            conic_position = dict(standard_parallels=self.secant_latitudes)
+
+        return ccrs.LambertConformal(
+            central_longitude=self.central_lon,
+            central_latitude=self.central_lat,
+            false_easting=self.false_easting,
+            false_northing=self.false_northing,
+            globe=globe, cutoff=cutoff, **conic_position)
 
     def as_cartopy_projection(self):
         return self.as_cartopy_crs()

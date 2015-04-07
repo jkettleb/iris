@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -19,7 +19,9 @@ Defines a lightweight wrapper class to wrap a single GRIB message.
 
 """
 
-from collections import OrderedDict, namedtuple
+from __future__ import (absolute_import, division, print_function)
+
+from collections import namedtuple
 import re
 
 import biggus
@@ -37,7 +39,7 @@ class _GribMessage(object):
     """
 
     @staticmethod
-    def messages_from_filename(filename, regularise=True):
+    def messages_from_filename(filename):
         """
         Return a generator of :class:`_GribMessage` instances; one for
         each message in the supplied GRIB file.
@@ -56,9 +58,9 @@ class _GribMessage(object):
                     break
                 raw_message = _RawGribMessage(grib_id)
                 recreate_raw = _MessageLocation(filename, offset)
-                yield _GribMessage(raw_message, recreate_raw, regularise)
+                yield _GribMessage(raw_message, recreate_raw)
 
-    def __init__(self, raw_message, recreate_raw, regularise):
+    def __init__(self, raw_message, recreate_raw):
         """
 
         Args:
@@ -70,7 +72,6 @@ class _GribMessage(object):
         """
         self._raw_message = raw_message
         self._recreate_raw = recreate_raw
-        self._regularise = regularise
 
     @property
     def sections(self):
@@ -93,22 +94,28 @@ class _GribMessage(object):
                 'Unsupported source of grid definition: {}'.format(
                     grid_section['sourceOfGridDefinition']))
 
-        if (grid_section['numberOfOctectsForNumberOfPoints'] != 0 or
-                grid_section['interpretationOfNumberOfPoints'] != 0):
-            raise TranslationError('Grid Definition Section 3 contains '
+        reduced = (grid_section['numberOfOctectsForNumberOfPoints'] != 0 or
+                   grid_section['interpretationOfNumberOfPoints'] != 0)
+        template = grid_section['gridDefinitionTemplateNumber']
+        if reduced and template not in (40,):
+            raise TranslationError('Grid definition Section 3 contains '
                                    'unsupported quasi-regular grid.')
 
-        template = grid_section['gridDefinitionTemplateNumber']
-        if template == 0:
+        if template in (0, 1, 5, 12, 40, 90):
             # We can ignore the first two bits (i-neg, j-pos) because
             # that is already captured in the coordinate values.
             if grid_section['scanningMode'] & 0x3f:
                 msg = 'Unsupported scanning mode: {}'.format(
                     grid_section['scanningMode'])
                 raise TranslationError(msg)
-            shape = (grid_section['Nj'], grid_section['Ni'])
+            if template == 90:
+                shape = (grid_section['Ny'], grid_section['Nx'])
+            elif template == 40 and reduced:
+                shape = (grid_section['numberOfDataPoints'],)
+            else:
+                shape = (grid_section['Nj'], grid_section['Ni'])
             proxy = _DataProxy(shape, np.dtype('f8'), np.nan,
-                               self._recreate_raw, self._regularise)
+                               self._recreate_raw)
             data = biggus.NumpyArrayAdapter(proxy)
         else:
             fmt = 'Grid definition template {} is not supported'
@@ -125,34 +132,85 @@ class _MessageLocation(namedtuple('_MessageLocation', 'filename offset')):
 class _DataProxy(object):
     """A reference to the data payload of a single GRIB message."""
 
-    __slots__ = ('shape', 'dtype', 'fill_value', 'recreate_raw', 'regularise')
+    __slots__ = ('shape', 'dtype', 'fill_value', 'recreate_raw')
 
-    def __init__(self, shape, dtype, fill_value, recreate_raw, regularise):
+    def __init__(self, shape, dtype, fill_value, recreate_raw):
         self.shape = shape
         self.dtype = dtype
         self.fill_value = fill_value
         self.recreate_raw = recreate_raw
-        self.regularise = regularise
 
     @property
     def ndim(self):
         return len(self.shape)
+
+    def _bitmap(self, bitmap_section):
+        """
+        Get the bitmap for the data from the message. The GRIB spec defines
+        that the bitmap is composed of values 0 or 1, where:
+
+            * 0: no data value at corresponding data point (data point masked).
+            * 1: data value at corresponding data point (data point unmasked).
+
+        The bitmap can take the following values:
+
+            * 0: Bitmap applies to the data and is specified in this section
+                 of this message.
+            * 1-253: Bitmap applies to the data, is specified by originating
+                     centre and is not specified in section 6 of this message.
+            * 254: Bitmap applies to the data, is specified in an earlier
+                   section 6 of this message and is not specified in this
+                   section 6 of this message.
+            * 255: Bitmap does not apply to the data.
+
+        Only values 0 and 255 are supported.
+
+        Returns the bitmap as a 1D array of length equal to the
+        number of data points in the message.
+
+        """
+        # Reference GRIB2 Code Table 6.0.
+        bitMapIndicator = bitmap_section['bitMapIndicator']
+
+        if bitMapIndicator == 0:
+            bitmap = bitmap_section['bitmap']
+        elif bitMapIndicator == 255:
+            bitmap = None
+        else:
+            msg = 'Bitmap Section 6 contains unsupported ' \
+                  'bitmap indicator [{}]'.format(bitMapIndicator)
+            raise TranslationError(msg)
+        return bitmap
 
     def __getitem__(self, keys):
         # NB. Currently assumes that the validity of this interpretation
         # is checked before this proxy is created.
         message = self.recreate_raw()
         sections = message.sections
-        grid_section = sections[3]
-        data = sections[7]['codedValues'].reshape(grid_section['Nj'],
-                                                  grid_section['Ni'])
+        bitmap_section = sections[6]
+        bitmap = self._bitmap(bitmap_section)
+        data = sections[7]['codedValues']
+
+        if bitmap is not None:
+            # Note that bitmap and data are both 1D arrays at this point.
+            if np.count_nonzero(bitmap) == data.shape[0]:
+                # Only the non-masked values are included in codedValues.
+                _data = np.empty(shape=bitmap.shape)
+                _data[bitmap.astype(bool)] = data
+                # `np.ma.masked_array` masks where input = 1, the opposite of
+                # the behaviour specified by the GRIB spec.
+                data = np.ma.masked_array(_data, mask=np.logical_not(bitmap))
+            else:
+                msg = 'Shapes of data and bitmap do not match.'
+                raise TranslationError(msg)
+
+        data = data.reshape(self.shape)
         return data.__getitem__(keys)
 
     def __repr__(self):
         msg = '<{self.__class__.__name__} shape={self.shape} ' \
             'dtype={self.dtype!r} fill_value={self.fill_value!r} ' \
-            'recreate_raw={self.recreate_raw!r} ' \
-            'regularise={self.regularise}>'
+            'recreate_raw={self.recreate_raw!r} '
         return msg.format(self=self)
 
     def __getstate__(self):
@@ -309,8 +367,18 @@ class _Section(object):
         message.
 
         """
-        if key in ('codedValues', 'pv'):
+        vector_keys = ('codedValues', 'pv', 'satelliteSeries',
+                       'satelliteNumber', 'instrumentType',
+                       'scaleFactorOfCentralWaveNumber',
+                       'scaledValueOfCentralWaveNumber',
+                       'longitudes', 'latitudes', 'distinctLatitudes')
+        if key in vector_keys:
             res = gribapi.grib_get_array(self._message_id, key)
+        elif key == 'bitmap':
+            # The bitmap is stored as contiguous boolean bits, one bit for each
+            # data point. GRIBAPI returns these as strings, so it must be
+            # type-cast to return an array of ints (0, 1).
+            res = gribapi.grib_get_array(self._message_id, key, int)
         elif key in ('typeOfFirstFixedSurface', 'typeOfSecondFixedSurface'):
             # By default these values are returned as unhelpful strings but
             # we can use int representation to compare against instead.

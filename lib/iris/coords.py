@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -18,7 +18,8 @@
 Definitions of coordinates.
 
 """
-from __future__ import division
+
+from __future__ import (absolute_import, division, print_function)
 
 from abc import ABCMeta, abstractproperty
 import collections
@@ -28,6 +29,7 @@ import operator
 import warnings
 import zlib
 
+import biggus
 import netcdftime
 import numpy as np
 
@@ -445,8 +447,15 @@ class Coord(CFVariableMixin):
             points = self._points
             bounds = self._bounds
         else:
-            points = self.points
-            bounds = self.bounds
+            points = self._points
+            if isinstance(points, iris.aux_factory.LazyArray):
+                # This triggers the LazyArray to compute its values
+                # (if it hasn't already), which will also trigger any
+                # deferred loading of its dependencies.
+                points = points.view()
+            bounds = self._bounds
+            if isinstance(bounds, iris.aux_factory.LazyArray):
+                bounds = bounds.view()
 
             # Make indexing on the cube column based by using the
             # column_slices_generator (potentially requires slicing the
@@ -1001,10 +1010,17 @@ class Coord(CFVariableMixin):
             raise ValueError('Coord already has bounds. Remove the bounds '
                              'before guessing new ones.')
 
-        diffs = np.diff(self.points)
-
-        diffs = np.insert(diffs, 0, diffs[0])
-        diffs = np.append(diffs, diffs[-1])
+        if getattr(self, 'circular', False):
+            points = np.empty(self.points.shape[0] + 2)
+            points[1:-1] = self.points
+            direction = 1 if self.points[-1] > self.points[0] else -1
+            points[0] = self.points[-1] - (self.units.modulus * direction)
+            points[-1] = self.points[0] + (self.units.modulus * direction)
+            diffs = np.diff(points)
+        else:
+            diffs = np.diff(self.points)
+            diffs = np.insert(diffs, 0, diffs[0])
+            diffs = np.append(diffs, diffs[-1])
 
         min_bounds = self.points - diffs[:-1] * bound_position
         max_bounds = self.points + diffs[1:] * (1 - bound_position)
@@ -1125,14 +1141,21 @@ class Coord(CFVariableMixin):
         #     or if two are equally close, return the lowest index
         if self.has_bounds():
             # make bounds ranges complete+separate, so point is in at least one
+            increasing = self.bounds[0, 1] > self.bounds[0, 0]
             bounds = bounds.copy()
             # sort the bounds cells by their centre values
             sort_inds = np.argsort(np.mean(bounds, axis=1))
             bounds = bounds[sort_inds]
             # replace all adjacent bounds with their averages
-            mid_bounds = 0.5 * (bounds[:-1, 1] + bounds[1:, 0])
-            bounds[:-1, 1] = mid_bounds
-            bounds[1:, 0] = mid_bounds
+            if increasing:
+                mid_bounds = 0.5 * (bounds[:-1, 1] + bounds[1:, 0])
+                bounds[:-1, 1] = mid_bounds
+                bounds[1:, 0] = mid_bounds
+            else:
+                mid_bounds = 0.5 * (bounds[:-1, 0] + bounds[1:, 1])
+                bounds[:-1, 0] = mid_bounds
+                bounds[1:, 1] = mid_bounds
+
             # if point lies beyond either end, fix the end cell to include it
             bounds[0, 0] = min(point, bounds[0, 0])
             bounds[-1, 1] = max(point, bounds[-1, 1])
@@ -1483,18 +1506,25 @@ class AuxCoord(Coord):
     @property
     def points(self):
         """Property containing the points values as a numpy array"""
-        return self._points.view()
+        points = self._points
+        if isinstance(points, biggus.Array):
+            points = points.ndarray()
+            self._points = points
+        return points.view()
 
     @points.setter
     def points(self, points):
         # Set the points to a new array - as long as it's the same shape.
 
-        # With the exception of LazyArrays ensure points is a numpy array with
-        # ndmin of 1.
-        # This will avoid Scalar coords with points of shape () rather than the
-        # desired (1,)
-        #   ... could change to: points = lazy.array(points, ndmin=1)
-        if not isinstance(points, iris.aux_factory.LazyArray):
+        # With the exception of LazyArrays, ensure points has an ndmin
+        # of 1 and is either a numpy or biggus array.
+        # This will avoid Scalar coords with points of shape () rather
+        # than the desired (1,)
+        if isinstance(points, biggus.Array):
+            if points.shape == ():
+                points = biggus.ConstantArray((1,), points.ndarray(),
+                                              points.dtype)
+        elif not isinstance(points, iris.aux_factory.LazyArray):
             points = self._sanitise_array(points, 1)
         # If points are already defined for this coordinate,
         if hasattr(self, '_points') and self._points is not None:
@@ -1516,7 +1546,11 @@ class AuxCoord(Coord):
 
         """
         if self._bounds is not None:
-            bounds = self._bounds.view()
+            bounds = self._bounds
+            if isinstance(bounds, biggus.Array):
+                bounds = bounds.ndarray()
+                self._bounds = bounds
+            bounds = bounds.view()
         else:
             bounds = None
 
@@ -1526,7 +1560,8 @@ class AuxCoord(Coord):
     def bounds(self, bounds):
         # Ensure the bounds are a compatible shape.
         if bounds is not None:
-            if not isinstance(bounds, iris.aux_factory.LazyArray):
+            if not isinstance(bounds, (iris.aux_factory.LazyArray,
+                                       biggus.Array)):
                 bounds = self._sanitise_array(bounds, 2)
             # NB. Use _points to avoid triggering any lazy array.
             if self._points.shape != bounds.shape[:-1]:
@@ -1670,7 +1705,7 @@ class _CellIterator(collections.Iterator):
 
     def next(self):
         # NB. When self._indices runs out it will raise StopIteration for us.
-        i = self._indices.next()
+        i = next(self._indices)
         return self._coord.cell(i)
 
 

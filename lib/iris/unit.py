@@ -25,8 +25,9 @@ See also: `UDUNITS-2
 
 """
 
-from __future__ import division
+from __future__ import (absolute_import, division, print_function)
 
+from contextlib import contextmanager
 import copy
 import ctypes
 import ctypes.util
@@ -172,7 +173,10 @@ _ut_set_error_message_handler = None
 # load the libc shared library
 #
 if _lib_c is None:
-    _lib_c = ctypes.CDLL(ctypes.util.find_library('libc'))
+    if sys.platform == 'win32':
+        _lib_c = ctypes.cdll.msvcrt
+    else:
+        _lib_c = ctypes.CDLL(ctypes.util.find_library('libc'))
 
     #
     # cache common shared library functions
@@ -705,6 +709,26 @@ def _handler(func):
     _ut_set_error_message_handler(func)
 
 
+@contextmanager
+def suppress_unit_warnings():
+    """
+    Suppresses all warnings raised because of invalid units in loaded data.
+
+    """
+    # Suppress any warning messages raised by UDUNITS2.
+    _func_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_char_p,
+                                  use_errno=True)
+    _set_handler_type = ctypes.CFUNCTYPE(_func_type, _func_type)
+    _ut_set_error_message_handler = _set_handler_type((_UT_HANDLER, _lib_ud))
+    _ut_ignore = _func_type((_UT_IGNORE, _lib_ud))
+    _default_handler = _ut_set_error_message_handler(_ut_ignore)
+    with warnings.catch_warnings():
+        # Also suppress invalid units warnings from the Iris loader code.
+        warnings.filterwarnings("ignore", message=".*invalid units")
+        yield
+    _ut_set_error_message_handler(_default_handler)
+
+
 ########################################################################
 #
 # unit wrapper class for unidata/ucar UDUNITS-2
@@ -836,8 +860,10 @@ class Unit(iris.util._OrderedHashable):
           defined by udunits.
         * 'proleptic_gregorian' - A Gregorian calendar extended to dates
           before 1582-10-15. A year is a leap year if either,
+
             1. It is divisible by 4 but not by 100, or
             2. It is divisible by 400.
+
         * 'noleap' or '365_day' - A Gregorian calendar without leap
           years i.e. all years are 365 days long.
         * 'all_leap' or '366_day' - A Gregorian calendar with every year
@@ -1794,7 +1820,7 @@ class Unit(iris.util._OrderedHashable):
             >>> import numpy as np
             >>> c = unit.Unit('deg_c')
             >>> f = unit.Unit('deg_f')
-            >>> print c.convert(0, f)
+            >>> print(c.convert(0, f))
             32.0
             >>> c.convert(0, f, unit.FLOAT32)
             32.0
@@ -1829,6 +1855,10 @@ class Unit(iris.util._OrderedHashable):
                 ut1 = self.utime()
                 ut2 = other.utime()
                 result = ut2.date2num(ut1.num2date(value_copy))
+                # Preserve the datatype of the input array if it was float32.
+                if (isinstance(value, np.ndarray)
+                        and value.dtype == np.float32):
+                    result = result.astype(np.float32)
             else:
                 ut_converter = _ut_get_converter(self.ut_unit, other.ut_unit)
                 if ut_converter:

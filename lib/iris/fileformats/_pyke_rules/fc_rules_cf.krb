@@ -663,6 +663,74 @@ fc_formula_type_ocean_sigma_z_coordinate
 
 #
 # Context:
+#   This rule will trigger if a formula term that refers to a
+#   dimensionless vertical coordinate of ocean sigma
+#
+# Purpose:
+#   Assert that the formula term refers to ocean sigma
+#
+fc_formula_type_ocean_sigma_coordinate
+    foreach
+        facts_cf.formula_root($coordinate)
+        check getattr(engine.cf_var.cf_group[$coordinate], 'standard_name') == 'ocean_sigma_coordinate'
+    assert
+        python engine.requires['formula_type'] = 'ocean_sigma_coordinate'
+        facts_cf.formula_type(ocean_sigma_coordinate)
+        python engine.rule_triggered.add(rule.name)
+
+#
+# Context:
+#   This rule will trigger if a formula term that refers to a
+#   dimensionless vertical coordinate of ocean s coordinate
+#
+# Purpose:
+#   Assert that the formula term refers to ocean sigma
+#
+fc_formula_type_ocean_s_coordinate
+    foreach
+        facts_cf.formula_root($coordinate)
+        check getattr(engine.cf_var.cf_group[$coordinate], 'standard_name') == 'ocean_s_coordinate'
+    assert
+        python engine.requires['formula_type'] = 'ocean_s_coordinate'
+        facts_cf.formula_type(ocean_s_coordinate)
+        python engine.rule_triggered.add(rule.name)
+
+#
+# Context:
+#   This rule will trigger if a formula term that refers to a
+#   dimensionless vertical coordinate of Ocean s-coordinate g1
+#
+# Purpose:
+#   Assert that the formula term refers to Ocean s-coordinate g1
+#
+fc_formula_type_ocean_s_coordinate_g1
+    foreach
+        facts_cf.formula_root($coordinate)
+        check getattr(engine.cf_var.cf_group[$coordinate], 'standard_name') == 'ocean_s_coordinate_g1'
+    assert
+        python engine.requires['formula_type'] = 'ocean_s_coordinate_g1'
+        facts_cf.formula_type(ocean_s_coordinate_g1)
+        python engine.rule_triggered.add(rule.name)
+
+#
+# Context:
+#   This rule will trigger if a formula term that refers to a
+#   dimensionless vertical coordinate of Ocean s-coordinate g2
+#
+# Purpose:
+#   Assert that the formula term refers to Ocean s-coordinate g2
+#
+fc_formula_type_ocean_s_coordinate_g2
+    foreach
+        facts_cf.formula_root($coordinate)
+        check getattr(engine.cf_var.cf_group[$coordinate], 'standard_name') == 'ocean_s_coordinate_g2'
+    assert
+        python engine.requires['formula_type'] = 'ocean_s_coordinate_g2'
+        facts_cf.formula_type(ocean_s_coordinate_g2)
+        python engine.rule_triggered.add(rule.name)
+
+#
+# Context:
 #   This rule will trigger for variables referenced by a dimensionless
 #   vertical coordinate.
 #
@@ -682,6 +750,7 @@ fc_extras
     import re
     import warnings
 
+    import biggus
     import netCDF4
     import numpy as np
     import numpy.ma as ma
@@ -718,8 +787,10 @@ fc_extras
                          'ocean_sigma_coordinate':['sigma', 'eta', 'depth'],
                          'ocean_s_coordinate':['s', 'eta', 'depth', 'a', 'b', 'depth_c'],
                          'ocean_sigma_z_coordinate':['sigma', 'eta', 'depth', 'depth_c', 'nsigma', 'zlev'],
-                         'ocean_double_sigma_coordinate':['sigma', 'depth', 'z1', 'z2', 'a', 'href', 'k_c']}
-    
+                         'ocean_double_sigma_coordinate':['sigma', 'depth', 'z1', 'z2', 'a', 'href', 'k_c'],
+                         'ocean_s_coordinate_g1':['s', 'eta', 'depth', 'depth_c', 'C'],
+                         'ocean_s_coordinate_g2':['s', 'eta', 'depth', 'depth_c', 'C']}
+
     #
     # CF Grid Mappings
     #
@@ -798,7 +869,7 @@ fc_extras
 
     CM_PARSE = re.compile(  r'''
                                 (?P<name>([\w_]+:\s+)+)
-                                (?P<method>[\w_]+)\s*
+                                (?P<method>[\w_\s]+(?![\w_]*:))\s*
                                 (?:
                                     \(\s*
                                     (?P<extra>[^\)]+)
@@ -839,13 +910,17 @@ fc_extras
 
         # Set the cube global attributes. 
         for attr_name, attr_value in cf_var.cf_group.global_attributes.iteritems():
-            if isinstance(attr_value, unicode):
-                try:
-                    cube.attributes[str(attr_name)] = str(attr_value)
-                except UnicodeEncodeError:
+            try:
+                if isinstance(attr_value, unicode):
+                    try:
+                        cube.attributes[str(attr_name)] = str(attr_value)
+                    except UnicodeEncodeError:
+                        cube.attributes[str(attr_name)] = attr_value
+                else:
                     cube.attributes[str(attr_name)] = attr_value
-            else:
-                cube.attributes[str(attr_name)] = attr_value
+            except ValueError as e:
+                msg = 'Skipping global attribute {!r}: {}'
+                warnings.warn(msg.format(attr_name, e.message))
 
 
 
@@ -943,6 +1018,8 @@ fc_extras
     ################################################################################
     def get_attr_units(cf_var, attributes):
         attr_units = getattr(cf_var, CF_ATTR_UNITS, iris.unit._UNIT_DIMENSIONLESS)
+        if not attr_units:
+            attr_units = '1'
 
         # Sanitise lat/lon units.
         if attr_units in UD_UNITS_LAT or attr_units in UD_UNITS_LON:
@@ -1159,14 +1236,6 @@ fc_extras
 
 
     ################################################################################
-    def deferred_load(filename, nc_var_name):
-        dataset = netCDF4.Dataset(filename)
-        nc_var = dataset.variables[nc_var_name]
-        values = nc_var[:]
-        return values
-
-
-    ################################################################################
     def build_auxiliary_coordinate(engine, cf_coord_var, coord_name=None, coord_system=None):
         """Create an auxiliary coordinate (AuxCoord) and add it to the cube."""
 
@@ -1177,30 +1246,34 @@ fc_extras
         # Get units
         attr_units = get_attr_units(cf_coord_var, attributes)
 
+        def cf_var_as_biggus(cf_var):
+            dtype = cf_var.dtype
+            fill_value = getattr(cf_var.cf_data, '_FillValue',
+                                 netCDF4.default_fillvals[dtype.str[1:]])
+            proxy = iris.fileformats.netcdf.NetCDFDataProxy(
+                cf_var.shape, dtype, engine.filename,
+                cf_var.cf_name, fill_value)
+            return biggus.OrthoArrayAdapter(proxy)
+
         # Get any coordinate point data.
         if isinstance(cf_coord_var, cf.CFLabelVariable):
             points_data = cf_coord_var.cf_label_data(cf_var)
         else:
-            # Use a closure to capture the current file/variable names.
-            filename = engine.filename
-            nc_var_name = cf_coord_var.cf_name
-            get_values = lambda: deferred_load(filename, nc_var_name)
-            points_data = iris.aux_factory.LazyArray(cf_coord_var.shape,
-                                                     get_values)
+            points_data = cf_var_as_biggus(cf_coord_var)
 
         # Get any coordinate bounds.
         cf_bounds_var = get_cf_bounds_var(cf_coord_var)
         if cf_bounds_var is not None:
-            # Use a closure to capture the current file/variable names.
-            filename = engine.filename
-            nc_bounds_var_name = cf_bounds_var.cf_name
-            get_values = lambda: deferred_load(filename, nc_bounds_var_name)
-            bounds_data = iris.aux_factory.LazyArray(cf_bounds_var.shape,
-                                                     get_values)
+            bounds_data = cf_var_as_biggus(cf_bounds_var)
+
             # Handle transposed bounds where the vertex dimension is not
             # the last one. Test based on shape to support different
             # dimension names.
             if cf_bounds_var.shape[:-1] != cf_coord_var.shape:
+                # Biggus 0.7 doesn't support rollaxis, so we have to
+                # resolve the data to a numpy array.
+                # NB. This is what used to happen with LazyArray as well.
+                bounds_data = bounds_data.ndarray()
                 bounds_data = reorder_bounds_data(bounds_data, cf_bounds_var,
                                                   cf_coord_var)
         else:
@@ -1411,8 +1484,17 @@ fc_extras
         if nc_cell_methods is not None:
             for m in CM_PARSE.finditer(nc_cell_methods):
                 d = m.groupdict()
-                if d[CM_METHOD].lower() not in CM_KNOWN_METHODS:
-                    warnings.warn('NetCDF variable {!r} contains unknown cell method {!r}'.format('{}'.format(cf_var_name), '{}'.format(d[CM_METHOD])))
+                method = d[CM_METHOD]
+                method = method.strip()
+                # Check validity of method, allowing for multi-part methods
+                # e.g. mean over years.
+                method_words = method.split()
+                if method_words[0].lower() not in CM_KNOWN_METHODS:
+                    msg = 'NetCDF variable {!r} contains unknown cell ' \
+                          'method {!r}'
+                    warnings.warn(msg.format('{}'.format(cf_var_name),
+                                             '{}'.format(method_words[0])))
+                d[CM_METHOD] = method
                 name = d[CM_NAME]
                 name = name.replace(' ', '')
                 name = name.rstrip(':')

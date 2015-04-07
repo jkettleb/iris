@@ -16,6 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for the `iris.fileformats.netcdf._load_aux_factory` function."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
@@ -26,7 +28,6 @@ import warnings
 
 from iris.coords import DimCoord
 from iris.cube import Cube
-from iris.aux_factory import HybridPressureFactory
 from iris.fileformats.netcdf import _load_aux_factory
 
 
@@ -107,6 +108,14 @@ class TestAtmosphereHybridSigmaPressureCoordinate(tests.IrisTest):
                 'coordinate {!r} bounds.'.format(coord_p0.name())
             self.assertEqual(msg, warn[0].message.message)
 
+    def test_formula_terms_ap_missing_coords(self):
+        coordinates = [(mock.sentinel.b, 'b'), (mock.sentinel.ps, 'ps')]
+        self.provides = dict(coordinates=coordinates)
+        self.requires['formula_terms'] = dict(ap='ap', b='b', ps='ps')
+        with mock.patch('warnings.warn') as warn:
+            _load_aux_factory(self.engine, self.cube)
+        warn.assert_called_once_with("Unable to find coordinate for variable "
+                                     "'ap'")
 
 if __name__ == '__main__':
     tests.main()

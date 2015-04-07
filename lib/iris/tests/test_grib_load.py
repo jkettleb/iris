@@ -15,13 +15,14 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris tests first so that some things can be initialised before
 # importing anything else
 import iris.tests as tests
 
 import datetime
 from distutils.version import StrictVersion
-import os
 
 import gribapi
 import mock
@@ -573,7 +574,7 @@ class TestGribTimecodes(tests.IrisTest):
             # Load the message from the file as a cube.
             cube_generator = iris.fileformats.grib.load_cubes(
                 temp_gribfile_path)
-            cube = cube_generator.next()
+            cube = next(cube_generator)
 
             # Check the cube has an extra "warning" attribute.
             self.assertEqual(

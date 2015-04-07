@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -21,13 +21,14 @@ See also: `ECMWF GRIB API <http://www.ecmwf.int/publications/manuals/grib_api/in
 
 """
 
+from __future__ import (absolute_import, division, print_function)
+
 import datetime
 import math  #for fmod
-import os
 import warnings
 
 import biggus
-import cartopy
+import cartopy.crs as ccrs
 import numpy as np
 import numpy.ma as ma
 import scipy.interpolate
@@ -40,7 +41,7 @@ import iris.coord_systems as coord_systems
 from iris.exceptions import TranslationError
 # NOTE: careful here, to avoid circular imports (as iris imports grib)
 from iris.fileformats.grib import grib_phenom_translation as gptx
-from iris.fileformats.grib import grib_save_rules
+from iris.fileformats.grib import _save_rules
 import iris.fileformats.grib._load_convert
 from iris.fileformats.grib._message import _GribMessage
 import iris.fileformats.grib.load_rules
@@ -281,7 +282,7 @@ class GribWrapper(object):
             # we just get <type 'float'> as the type of the "values" array...special case here...
             if key in ["values", "pv", "latitudes", "longitudes"]:
                 res = gribapi.grib_get_double_array(self.grib_message, key)
-            elif key in ('typeOfFirstFixedSurface','typeOfSecondFixedSurface'):
+            elif key in ('typeOfFirstFixedSurface', 'typeOfSecondFixedSurface'):
                 res = np.int32(gribapi.grib_get_long(self.grib_message, key))
             else:
                 key_type = gribapi.grib_get_native_type(self.grib_message, key)
@@ -592,7 +593,7 @@ class GribWrapper(object):
             x1, y1 = cartopy_crs.transform_point(
                                 self.longitudeOfFirstGridPointInDegrees,
                                 self.latitudeOfFirstGridPointInDegrees,
-                                cartopy.crs.Geodetic())
+                                ccrs.Geodetic())
 
             if not np.all(np.isfinite([x1, y1])):
                 raise TranslationError("Could not determine the first latitude"
@@ -871,7 +872,7 @@ def grib_generator(filename, auto_regularise=True):
             gribapi.grib_release(grib_message)
 
 
-def load_cubes(filenames, callback=None, regularise=True, auto_regularise=None):
+def load_cubes(filenames, callback=None, auto_regularise=True):
     """
     Returns a generator of cubes from the given list of filenames.
 
@@ -885,13 +886,6 @@ def load_cubes(filenames, callback=None, regularise=True, auto_regularise=None):
     * callback (callable function):
         Function which can be passed on to :func:`iris.io.run_callback`.
 
-    * regularise (*True* | *False*):
-        If *True*, any cube defined on a reduced grid will be interpolated
-        to an equivalent regular grid. If *False*, any cube defined on a
-        reduced grid will be loaded on the raw reduced grid with no shape
-        information. The default behaviour is to interpolate cubes on a
-        reduced grid to an equivalent regular grid.
-
     * auto_regularise (*True* | *False*):
         If *True*, any cube defined on a reduced grid will be interpolated
         to an equivalent regular grid. If *False*, any cube defined on a
@@ -899,32 +893,26 @@ def load_cubes(filenames, callback=None, regularise=True, auto_regularise=None):
         information. The default behaviour is to interpolate cubes on a
         reduced grid to an equivalent regular grid.
 
-        .. deprecated:: 1.8. Please use the `regularise` kwarg instead.
+        .. deprecated:: 1.8. Please use strict_grib_load and regrid instead.
+        
 
-    .. note::
-
-       To make use of the *regularise* keyword the normal Iris loading
-       pipeline cannot be used, the loading must be performed manually::
-
-           cube_generator = iris.fileformats.grib.load_cubes(
-               "reduced.grib", regularise=False)
-           cubes = iris.cube.CubeList(cube_generator).merge()
 
     """
     if auto_regularise is not None:
         warnings.warn('the`auto_regularise` kwarg is deprecated and '
-                      'will be removed in a future release. Please use '
-                      '`regularise` instead.')
-        regularise = auto_regularise
+                      'will be removed in a future release. Resampling '
+                      'quasi-regular grids on load will no longer be '
+                      'available.  Resampling should be done on the '
+                      'loaded cube instead using Cube.regrid.')
 
     if iris.FUTURE.strict_grib_load:
         grib_loader = iris.fileformats.rules.Loader(
             _GribMessage.messages_from_filename,
-            {'regularise': regularise},
+            {},
             iris.fileformats.grib._load_convert.convert, None)
     else:
         grib_loader = iris.fileformats.rules.Loader(
-            grib_generator, {'auto_regularise': regularise},
+            grib_generator, {'auto_regularise': auto_regularise},
             iris.fileformats.grib.load_rules.convert,
             _load_rules)
     return iris.fileformats.rules.load_cubes(filenames, callback, grib_loader)
@@ -959,19 +947,17 @@ def save_grib2(cube, target, append=False, **kwargs):
     else:
         raise ValueError("Can only save grib to filename or writable")
 
-    # discover the lat and lon coords (this bit is common to the pp and grib savers...)
-    lat_coords = filter(lambda coord: "latitude" in coord.name(), cube.coords())
-    lon_coords = filter(lambda coord: "longitude" in coord.name(), cube.coords())
-    if len(lat_coords) != 1 or len(lon_coords) != 1:
-        raise TranslationError("Did not find one (and only one) "
-                               "latitude or longitude coord")
+    x_coords = cube.coords(axis='x', dim_coords=True)
+    y_coords = cube.coords(axis='y', dim_coords=True)
+    if len(x_coords) != 1 or len(y_coords) != 1:
+        raise TranslationError("Did not find one (and only one) x or y coord")
 
     # Save each latlon slice2D in the cube
-    for slice2D in cube.slices([lat_coords[0], lon_coords[0]]):
+    for slice2D in cube.slices([y_coords[0], x_coords[0]]):
 
         # Save this slice to the grib file
         grib_message = gribapi.grib_new_from_samples("GRIB2")
-        grib_save_rules.run(slice2D, grib_message)
+        _save_rules.run(slice2D, grib_message)
         gribapi.grib_write(grib_message, grib_file)
         gribapi.grib_release(grib_message)
 

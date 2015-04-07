@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2013 - 2014, Met Office
+# (C) British Crown Copyright 2013 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -18,9 +18,11 @@
 Regridding functions.
 
 """
-import collections
+
+from __future__ import (absolute_import, division, print_function)
+
+from collections import namedtuple
 import copy
-import functools
 import warnings
 
 import numpy as np
@@ -28,59 +30,16 @@ import numpy.ma as ma
 from scipy.sparse import csc_matrix
 
 import iris.analysis.cartography
-from iris.analysis._scipy_interpolate import _RegularGridInterpolator
-import iris.analysis._interpolator
+from iris.analysis._interpolation import get_xy_dim_coords
+from iris.analysis._regrid import RectilinearRegridder
 import iris.coord_systems
 import iris.cube
 import iris.unit
 
 
-def _snapshot_grid(cube):
-    """
-    Helper function that returns deep copies of lateral dimension coordinates
-    from a cube.
-
-    """
-    x, y = _get_xy_dim_coords(cube)
-    return x.copy(), y.copy()
-
-
-def _get_xy_dim_coords(cube):
-    """
-    Return the x and y dimension coordinates from a cube.
-
-    This function raises a ValueError if the cube does not contain one and
-    only one set of x and y dimension coordinates. It also raises a ValueError
-    if the identified x and y coordinates do not have coordinate systems that
-    are equal.
-
-    Args:
-
-    * cube:
-        An instance of :class:`iris.cube.Cube`.
-
-    Returns:
-        A tuple containing the cube's x and y dimension coordinates.
-
-    """
-    x_coords = cube.coords(axis='x', dim_coords=True)
-    if len(x_coords) != 1:
-        raise ValueError('Cube {!r} must contain a single 1D x '
-                         'coordinate.'.format(cube.name()))
-    x_coord = x_coords[0]
-
-    y_coords = cube.coords(axis='y', dim_coords=True)
-    if len(y_coords) != 1:
-        raise ValueError('Cube {!r} must contain a single 1D y '
-                         'coordinate.'.format(cube.name()))
-    y_coord = y_coords[0]
-
-    if x_coord.coord_system != y_coord.coord_system:
-        raise ValueError("The cube's x ({!r}) and y ({!r}) "
-                         "coordinates must have the same coordinate "
-                         "system.".format(x_coord.name(), y_coord.name()))
-
-    return x_coord, y_coord
+_Version = namedtuple('Version', ('major', 'minor', 'micro'))
+_NP_VERSION = _Version(*(int(val) for val in
+                         np.version.version.split('.')))
 
 
 def _get_xy_coords(cube):
@@ -155,503 +114,48 @@ def _get_xy_coords(cube):
     return x_coord, y_coord
 
 
-def _sample_grid(src_coord_system, grid_x_coord, grid_y_coord):
+def _within_bounds(src_bounds, tgt_bounds, orderswap=False):
     """
-    Convert the rectilinear grid coordinates to a curvilinear grid in
-    the source coordinate system.
-
-    The `grid_x_coord` and `grid_y_coord` must share a common coordinate
-    system.
+    Determine which target bounds lie within the extremes of the source bounds.
 
     Args:
 
-    * src_coord_system:
-        The :class:`iris.coord_system.CoordSystem` for the grid of the
-        source Cube.
-    * grid_x_coord:
-        The :class:`iris.coords.DimCoord` for the X coordinate.
-    * grid_y_coord:
-        The :class:`iris.coords.DimCoord` for the Y coordinate.
-
-    Returns:
-        A tuple of the X and Y coordinate values as 2-dimensional
-        arrays.
-
-    """
-    grid_x, grid_y = np.meshgrid(grid_x_coord.points, grid_y_coord.points)
-    # Skip the CRS transform if we can to avoid precision problems.
-    if src_coord_system == grid_x_coord.coord_system:
-        sample_grid_x = grid_x
-        sample_grid_y = grid_y
-    else:
-        src_crs = src_coord_system.as_cartopy_crs()
-        grid_crs = grid_x_coord.coord_system.as_cartopy_crs()
-        sample_xyz = src_crs.transform_points(grid_crs, grid_x, grid_y)
-        sample_grid_x = sample_xyz[..., 0]
-        sample_grid_y = sample_xyz[..., 1]
-    return sample_grid_x, sample_grid_y
-
-
-def _regrid_bilinear_array(src_data, x_dim, y_dim, src_x_coord, src_y_coord,
-                           sample_grid_x, sample_grid_y,
-                           extrapolation_mode='nanmask'):
-    """
-    Regrid the given data from the src grid to the sample grid.
-
-    The result will be a MaskedArray if either/both of:
-     - the source array is a MaskedArray,
-     - the extrapolation_mode is 'mask' and the result requires
-       extrapolation.
-
-    If the result is a MaskedArray the mask for each element will be set
-    if either/both of:
-     - there is a non-zero contribution from masked items in the input data,
-     - the element requires extrapolation and the extrapolation_mode
-       dictates a masked value.
-
-    Args:
-
-    * src_data:
-        An N-dimensional NumPy array or MaskedArray.
-    * x_dim:
-        The X dimension within `src_data`.
-    * y_dim:
-        The Y dimension within `src_data`.
-    * src_x_coord:
-        The X :class:`iris.coords.DimCoord`.
-    * src_y_coord:
-        The Y :class:`iris.coords.DimCoord`.
-    * sample_grid_x:
-        A 2-dimensional array of sample X values.
-    * sample_grid_y:
-        A 2-dimensional array of sample Y values.
+    * src_bounds (ndarray):
+        An (n, 2) shaped array of monotonic contiguous source bounds.
+    * tgt_bounds (ndarray):
+        An (n, 2) shaped array corresponding to the target bounds.
 
     Kwargs:
 
-    * extrapolation_mode:
-        Must be one of the following strings:
-
-          * 'linear' - The extrapolation points will be calculated by
-            extending the gradient of the closest two points.
-          * 'nan' - The extrapolation points will be be set to NaN.
-          * 'error' - A ValueError exception will be raised, notifying an
-            attempt to extrapolate.
-          * 'mask' - The extrapolation points will always be masked, even
-            if the source data is not a MaskedArray.
-          * 'nanmask' - If the source data is a MaskedArray the
-            extrapolation points will be masked. Otherwise they will be
-            set to NaN.
-
-        The default mode of extrapolation is 'nanmask'.
+    * orderswap (bool):
+        A Boolean indicating whether the target bounds are in descending order
+        (True). Defaults to False.
 
     Returns:
-        The regridded data as an N-dimensional NumPy array. The lengths
-        of the X and Y dimensions will now match those of the sample
-        grid.
+        Boolean ndarray, indicating whether each target bound is within the
+        extremes of the source bounds.
 
     """
-    if sample_grid_x.shape != sample_grid_y.shape:
-        raise ValueError('Inconsistent sample grid shapes.')
-    if sample_grid_x.ndim != 2:
-        raise ValueError('Sample grid must be 2-dimensional.')
+    min_bound = np.min(src_bounds)
+    max_bound = np.max(src_bounds)
 
-    # Prepare the result data array
-    shape = list(src_data.shape)
-    assert shape[x_dim] == src_x_coord.shape[0]
-    assert shape[y_dim] == src_y_coord.shape[0]
-
-    shape[y_dim] = sample_grid_x.shape[0]
-    shape[x_dim] = sample_grid_x.shape[1]
-
-    # If we're given integer values, convert them to the smallest
-    # possible float dtype that can accurately preserve the values.
-    dtype = src_data.dtype
-    if dtype.kind == 'i':
-        dtype = np.promote_types(dtype, np.float16)
-
-    if isinstance(src_data, ma.MaskedArray):
-        data = ma.empty(shape, dtype=dtype)
-        data.mask = np.zeros(data.shape, dtype=np.bool)
+    # Swap upper-lower is necessary.
+    if orderswap is True:
+        upper, lower = tgt_bounds.T
     else:
-        data = np.empty(shape, dtype=dtype)
+        lower, upper = tgt_bounds.T
 
-    # The interpolation class requires monotonically increasing coordinates,
-    # so flip the coordinate(s) and data if the aren't.
-    reverse_x = src_x_coord.points[0] > src_x_coord.points[1]
-    reverse_y = src_y_coord.points[0] > src_y_coord.points[1]
-    flip_index = [slice(None)] * src_data.ndim
-    if reverse_x:
-        src_x_coord = src_x_coord[::-1]
-        flip_index[x_dim] = slice(None, None, -1)
-    if reverse_y:
-        src_y_coord = src_y_coord[::-1]
-        flip_index[y_dim] = slice(None, None, -1)
-    src_data = src_data[tuple(flip_index)]
-
-    if src_x_coord.circular:
-        extend = iris.analysis._interpolator._extend_circular_coord_and_data
-        x_points, src_data = extend(src_x_coord, src_data, x_dim)
-    else:
-        x_points = src_x_coord.points
-
-    # Slice out the first full 2D piece of data for construction of the
-    # interpolator.
-    index = [0] * src_data.ndim
-    index[x_dim] = index[y_dim] = slice(None)
-    initial_data = src_data[tuple(index)]
-    if y_dim < x_dim:
-        initial_data = initial_data.T
-
-    # Construct the interpolator, we will fill in any values out of bounds
-    # manually.
-    interpolator = _RegularGridInterpolator([x_points,
-                                             src_y_coord.points],
-                                            initial_data, fill_value=None,
-                                            bounds_error=False)
-    # The constructor of the _RegularGridInterpolator class does
-    # some unnecessary checks on these values, so we set them
-    # afterwards instead. Sneaky. ;-)
-    try:
-        modes = iris.analysis._interpolator._LINEAR_EXTRAPOLATION_MODES
-        mode = modes[extrapolation_mode]
-    except KeyError:
-        raise ValueError('Invalid extrapolation mode.')
-    interpolator.bounds_error = mode.bounds_error
-    interpolator.fill_value = mode.fill_value
-
-    # Construct the target coordinate points array, suitable for passing to
-    # the interpolator multiple times.
-    interpolator_coords = [sample_grid_x.astype(np.float64)[..., np.newaxis],
-                           sample_grid_y.astype(np.float64)[..., np.newaxis]]
-
-    # Map all the requested values into the range of the source
-    # data (centred over the centre of the source data to allow
-    # extrapolation where required).
-    min_x, max_x = x_points.min(), x_points.max()
-    min_y, max_y = src_y_coord.points.min(), src_y_coord.points.max()
-    if src_x_coord.units.modulus:
-        modulus = src_x_coord.units.modulus
-        offset = (max_x + min_x - modulus) * 0.5
-        interpolator_coords[0] -= offset
-        interpolator_coords[0] = (interpolator_coords[0] % modulus) + offset
-
-    interpolator_coords = np.dstack(interpolator_coords)
-
-    def interpolate(data):
-        # Update the interpolator for this data slice.
-        data = data.astype(interpolator.values.dtype)
-        if y_dim < x_dim:
-            data = data.T
-        interpolator.values = data
-        data = interpolator(interpolator_coords)
-        if y_dim > x_dim:
-            data = data.T
-        return data
-
-    # Build up a shape suitable for passing to ndindex, inside the loop we
-    # will insert slice(None) on the data indices.
-    iter_shape = list(shape)
-    iter_shape[x_dim] = iter_shape[y_dim] = 1
-
-    # Iterate through each 2d slice of the data, updating the interpolator
-    # with the new data as we go.
-    for index in np.ndindex(tuple(iter_shape)):
-        index = list(index)
-        index[x_dim] = index[y_dim] = slice(None)
-
-        src_subset = src_data[tuple(index)]
-        interpolator.fill_value = mode.fill_value
-        data[tuple(index)] = interpolate(src_subset)
-
-        if isinstance(data, ma.MaskedArray) or mode.force_mask:
-            # NB. np.ma.getmaskarray returns an array of `False` if
-            # `src_subset` is not a masked array.
-            src_mask = np.ma.getmaskarray(src_subset)
-            interpolator.fill_value = mode.mask_fill_value
-            mask_fraction = interpolate(src_mask)
-            new_mask = (mask_fraction > 0)
-
-            if np.ma.isMaskedArray(data):
-                data.mask[tuple(index)] = new_mask
-            elif np.any(new_mask):
-                # Set mask=False to ensure we have an expanded mask array.
-                data = np.ma.MaskedArray(data, mask=False)
-                data.mask[tuple(index)] = new_mask
-
-    return data
-
-
-def _regrid_reference_surface(src_surface_coord, surface_dims, x_dim, y_dim,
-                              src_x_coord, src_y_coord,
-                              sample_grid_x, sample_grid_y, regrid_callback):
-    """
-    Return a new reference surface coordinate appropriate to the sample
-    grid.
-
-    Args:
-
-    * src_surface_coord:
-        The :class:`iris.coords.Coord` containing the source reference
-        surface.
-    * surface_dims:
-        The tuple of the data dimensions relevant to the source
-        reference surface coordinate.
-    * x_dim:
-        The X dimension within the source Cube.
-    * y_dim:
-        The Y dimension within the source Cube.
-    * src_x_coord:
-        The X :class:`iris.coords.DimCoord`.
-    * src_y_coord:
-        The Y :class:`iris.coords.DimCoord`.
-    * sample_grid_x:
-        A 2-dimensional array of sample X values.
-    * sample_grid_y:
-        A 2-dimensional array of sample Y values.
-    * regrid_callback:
-        The routine that will be used to calculate the interpolated
-        values for the new reference surface.
-
-    Returns:
-        The new reference surface coordinate.
-
-    """
-    # Determine which of the reference surface's dimensions span the X
-    # and Y dimensions of the source cube.
-    surface_x_dim = surface_dims.index(x_dim)
-    surface_y_dim = surface_dims.index(y_dim)
-    surface = regrid_callback(src_surface_coord.points,
-                              surface_x_dim, surface_y_dim,
-                              src_x_coord, src_y_coord,
-                              sample_grid_x, sample_grid_y)
-    surface_coord = src_surface_coord.copy(surface)
-    return surface_coord
-
-
-def _create_cube(data, src, x_dim, y_dim, src_x_coord, src_y_coord,
-                 grid_x_coord, grid_y_coord, sample_grid_x, sample_grid_y,
-                 regrid_callback):
-    """
-    Return a new Cube for the result of regridding the source Cube onto
-    the new grid.
-
-    All the metadata and coordinates of the result Cube are copied from
-    the source Cube, with two exceptions:
-        - Grid dimension coordinates are copied from the grid Cube.
-        - Auxiliary coordinates which span the grid dimensions are
-          ignored, except where they provide a reference surface for an
-          :class:`iris.aux_factory.AuxCoordFactory`.
-
-    Args:
-
-    * data:
-        The regridded data as an N-dimensional NumPy array.
-    * src:
-        The source Cube.
-    * x_dim:
-        The X dimension within the source Cube.
-    * y_dim:
-        The Y dimension within the source Cube.
-    * src_x_coord:
-        The X :class:`iris.coords.DimCoord`.
-    * src_y_coord:
-        The Y :class:`iris.coords.DimCoord`.
-    * grid_x_coord:
-        The :class:`iris.coords.DimCoord` for the new grid's X
-        coordinate.
-    * grid_y_coord:
-        The :class:`iris.coords.DimCoord` for the new grid's Y
-        coordinate.
-    * sample_grid_x:
-        A 2-dimensional array of sample X values.
-    * sample_grid_y:
-        A 2-dimensional array of sample Y values.
-    * regrid_callback:
-        The routine that will be used to calculate the interpolated
-        values of any reference surfaces.
-
-    Returns:
-        The new, regridded Cube.
-
-    """
-    # Create a result cube with the appropriate metadata
-    result = iris.cube.Cube(data)
-    result.metadata = copy.deepcopy(src.metadata)
-
-    # Copy across all the coordinates which don't span the grid.
-    # Record a mapping from old coordinate IDs to new coordinates,
-    # for subsequent use in creating updated aux_factories.
-    coord_mapping = {}
-
-    def copy_coords(src_coords, add_method):
-        for coord in src_coords:
-            dims = src.coord_dims(coord)
-            if coord is src_x_coord:
-                coord = grid_x_coord
-            elif coord is src_y_coord:
-                coord = grid_y_coord
-            elif x_dim in dims or y_dim in dims:
-                continue
-            result_coord = coord.copy()
-            add_method(result_coord, dims)
-            coord_mapping[id(coord)] = result_coord
-
-    copy_coords(src.dim_coords, result.add_dim_coord)
-    copy_coords(src.aux_coords, result.add_aux_coord)
-
-    # Copy across any AuxFactory instances, and regrid their reference
-    # surfaces where required.
-    for factory in src.aux_factories:
-        for coord in factory.dependencies.itervalues():
-            if coord is None:
-                continue
-            dims = src.coord_dims(coord)
-            if x_dim in dims and y_dim in dims:
-                result_coord = _regrid_reference_surface(
-                    coord, dims, x_dim, y_dim, src_x_coord, src_y_coord,
-                    sample_grid_x, sample_grid_y, regrid_callback)
-                result.add_aux_coord(result_coord, dims)
-                coord_mapping[id(coord)] = result_coord
-        try:
-            result.add_aux_factory(factory.updated(coord_mapping))
-        except KeyError:
-            msg = 'Cannot update aux_factory {!r} because of dropped' \
-                  ' coordinates.'.format(factory.name())
-            warnings.warn(msg)
-    return result
-
-
-def regrid_bilinear_rectilinear_src_and_grid(src, grid,
-                                             extrapolation_mode='mask'):
-    """
-    Return a new Cube that is the result of regridding the source Cube
-    onto the grid of the grid Cube using bilinear interpolation.
-
-    Both the source and grid Cubes must be defined on rectilinear grids.
-
-    Auxiliary coordinates which span the grid dimensions are ignored,
-    except where they provide a reference surface for an
-    :class:`iris.aux_factory.AuxCoordFactory`.
-
-    Args:
-
-    * src:
-        The source :class:`iris.cube.Cube` providing the data.
-    * grid:
-        The :class:`iris.cube.Cube` which defines the new grid.
-
-    Kwargs:
-
-    * extrapolation_mode:
-        Must be one of the following strings:
-
-          * 'linear' - The extrapolation points will be calculated by
-            extending the gradient of the closest two points.
-          * 'nan' - The extrapolation points will be be set to NaN.
-          * 'error' - A ValueError exception will be raised, notifying an
-            attempt to extrapolate.
-          * 'mask' - The extrapolation points will always be masked, even
-            if the source data is not a MaskedArray.
-          * 'nanmask' - If the source data is a MaskedArray the
-            extrapolation points will be masked. Otherwise they will be
-            set to NaN.
-
-        The default mode of extrapolation is 'mask'.
-
-    Returns:
-        The :class:`iris.cube.Cube` resulting from regridding the source
-        data onto the grid defined by the grid Cube.
-
-    """
-    # Validity checks
-    if not isinstance(src, iris.cube.Cube):
-        raise TypeError("'src' must be a Cube")
-    if not isinstance(grid, iris.cube.Cube):
-        raise TypeError("'grid' must be a Cube")
-    src_x_coord, src_y_coord = _get_xy_dim_coords(src)
-    grid_x_coord, grid_y_coord = _get_xy_dim_coords(grid)
-    src_cs = src_x_coord.coord_system
-    grid_cs = grid_x_coord.coord_system
-    if src_cs is None and grid_cs is None:
-        if not (src_x_coord.is_compatible(grid_x_coord) and
-                src_y_coord.is_compatible(grid_y_coord)):
-            raise ValueError("The rectilinear grid coordinates of the 'src' "
-                             "and 'grid' Cubes have no coordinate system but "
-                             "they do not have matching coordinate metadata.")
-    elif src_cs is None or grid_cs is None:
-        raise ValueError("The rectilinear grid coordinates of the 'src' and "
-                         "'grid' Cubes must either both have coordinate "
-                         "systems or both have no coordinate system but with "
-                         "matching coordinate metadata.")
-
-    def _check_units(coord):
-        if coord.coord_system is None:
-            # No restriction on units.
-            pass
-        elif isinstance(coord.coord_system,
-                        (iris.coord_systems.GeogCS,
-                         iris.coord_systems.RotatedGeogCS)):
-            # Units for lat-lon or rotated pole must be 'degrees'. Note
-            # that 'degrees_east' etc. are equal to 'degrees'.
-            if coord.units != 'degrees':
-                msg = "Unsupported units for coordinate system. " \
-                      "Expected 'degrees' got {!r}.".format(coord.units)
-                raise ValueError(msg)
-        else:
-            # Units for other coord systems must be equal to metres.
-            if coord.units != 'm':
-                msg = "Unsupported units for coordinate system. " \
-                      "Expected 'metres' got {!r}.".format(coord.units)
-                raise ValueError(msg)
-
-    for coord in (src_x_coord, src_y_coord, grid_x_coord, grid_y_coord):
-        _check_units(coord)
-
-    modes = iris.analysis._interpolator._LINEAR_EXTRAPOLATION_MODES
-    if extrapolation_mode not in modes:
-        raise ValueError('Invalid extrapolation mode.')
-
-    # Convert the grid to a 2D sample grid in the src CRS.
-    sample_grid_x, sample_grid_y = _sample_grid(src_cs,
-                                                grid_x_coord, grid_y_coord)
-
-    # Compute the interpolated data values.
-    x_dim = src.coord_dims(src_x_coord)[0]
-    y_dim = src.coord_dims(src_y_coord)[0]
-    data = _regrid_bilinear_array(src.data, x_dim, y_dim,
-                                  src_x_coord, src_y_coord,
-                                  sample_grid_x, sample_grid_y,
-                                  extrapolation_mode)
-
-    # Wrap up the data as a Cube.
-    regrid_callback = functools.partial(_regrid_bilinear_array,
-                                        extrapolation_mode='nan')
-    result = _create_cube(data, src, x_dim, y_dim, src_x_coord, src_y_coord,
-                          grid_x_coord, grid_y_coord,
-                          sample_grid_x, sample_grid_y,
-                          regrid_callback)
-    return result
-
-
-def _within_bounds(bounds, lower, upper):
-    """
-    Return whether both lower and upper lie within the extremes
-    of bounds.
-
-    """
-    min_bound = np.min(bounds)
-    max_bound = np.max(bounds)
-
-    return (min_bound <= lower <= max_bound) and \
-        (min_bound <= upper <= max_bound)
+    return (((lower <= max_bound) * (lower >= min_bound)) *
+            ((upper <= max_bound) * (upper >= min_bound)))
 
 
 def _cropped_bounds(bounds, lower, upper):
     """
-    Return a new bounds array and corresponding slice object (or indices)
-    that result from cropping the provided bounds between the specified lower
-    and upper values. The bounds at the extremities will be truncated so that
-    they start and end with lower and upper.
+    Return a new bounds array and corresponding slice object (or indices) of
+    the original data array, resulting from cropping the provided bounds
+    between the specified lower and upper values. The bounds at the
+    extremities will be truncated so that they start and end with lower and
+    upper.
 
     This function will return an empty NumPy array and slice if there is no
     overlap between the region covered by bounds and the region from lower to
@@ -970,8 +474,25 @@ def _regrid_area_weighted_array(src_data, x_dim, y_dim,
     # Assign to mask to explode it, allowing indexed assignment.
     new_data.mask = False
 
-    # Simple for loop approach.
     indices = [slice(None)] * new_data.ndim
+
+    # Determine which grid bounds are within src extent.
+    y_within_bounds = _within_bounds(src_y_bounds, grid_y_bounds,
+                                     grid_y_decreasing)
+    x_within_bounds = _within_bounds(src_x_bounds, grid_x_bounds,
+                                     grid_x_decreasing)
+
+    # Cache which src_bounds are within grid bounds
+    cached_x_bounds = []
+    cached_x_indices = []
+    for (x_0, x_1) in grid_x_bounds:
+        if grid_x_decreasing:
+            x_0, x_1 = x_1, x_0
+        x_bounds, x_indices = _cropped_bounds(src_x_bounds, x_0, x_1)
+        cached_x_bounds.append(x_bounds)
+        cached_x_indices.append(x_indices)
+
+    # Simple for loop approach.
     for j, (y_0, y_1) in enumerate(grid_y_bounds):
         # Reverse lower and upper if dest grid is decreasing.
         if grid_y_decreasing:
@@ -981,7 +502,8 @@ def _regrid_area_weighted_array(src_data, x_dim, y_dim,
             # Reverse lower and upper if dest grid is decreasing.
             if grid_x_decreasing:
                 x_0, x_1 = x_1, x_0
-            x_bounds, x_indices = _cropped_bounds(src_x_bounds, x_0, x_1)
+            x_bounds = cached_x_bounds[i]
+            x_indices = cached_x_indices[i]
 
             # Determine whether to mask element i, j based on overlap with
             # src.
@@ -990,8 +512,8 @@ def _regrid_area_weighted_array(src_data, x_dim, y_dim,
             # (i.e. circular) this new cell would include a region outside of
             # the extent of the src grid and should therefore be masked.
             outside_extent = x_0 > x_1 and not circular
-            if (outside_extent or not _within_bounds(src_y_bounds, y_0, y_1) or
-                    not _within_bounds(src_x_bounds, x_0, x_1)):
+            if (outside_extent or not y_within_bounds[j] or not
+                    x_within_bounds[i]):
                 # Mask out element(s) in new_data
                 if x_dim is not None:
                     indices[x_dim] = i
@@ -1018,11 +540,7 @@ def _regrid_area_weighted_array(src_data, x_dim, y_dim,
                 # Numpy 1.7 allows the axis keyword arg to be a tuple.
                 # If the version of NumPy is less than 1.7 manipulate the axes
                 # of the data so the x and y dimensions can be flattened.
-                Version = collections.namedtuple('Version',
-                                                 ('major', 'minor', 'micro'))
-                np_version = Version(*(int(val) for val in
-                                       np.version.version.split('.')))
-                if np_version.minor < 7:
+                if _NP_VERSION.minor < 7:
                     if y_dim is not None and x_dim is not None:
                         flattened_shape = list(data.shape)
                         if y_dim > x_dim:
@@ -1230,10 +748,12 @@ def regrid_area_weighted_rectilinear_src_and_grid(src_cube, grid_cube,
     # Wrap up the data as a Cube.
     # Create 2d meshgrids as required by _create_cube func.
     meshgrid_x, meshgrid_y = np.meshgrid(grid_x.points, grid_y.points)
-    new_cube = _create_cube(new_data, src_cube, src_x_dim, src_y_dim,
-                            src_x, src_y, grid_x, grid_y,
-                            meshgrid_x, meshgrid_y,
-                            _regrid_bilinear_array)
+    regrid_callback = RectilinearRegridder._regrid
+    new_cube = RectilinearRegridder._create_cube(new_data, src_cube,
+                                                 src_x_dim, src_y_dim,
+                                                 src_x, src_y, grid_x, grid_y,
+                                                 meshgrid_x, meshgrid_y,
+                                                 regrid_callback)
 
     # Slice out any length 1 dimensions.
     indices = [slice(None, None)] * new_data.ndim
@@ -1308,7 +828,7 @@ def regrid_weighted_curvilinear_to_rectilinear(src_cube, weights, grid_cube):
     # Get the source cube x and y 2D auxiliary coordinates.
     sx, sy = src_cube.coord(axis='x'), src_cube.coord(axis='y')
     # Get the target grid cube x and y dimension coordinates.
-    tx, ty = _get_xy_dim_coords(grid_cube)
+    tx, ty = get_xy_dim_coords(grid_cube)
 
     if sx.units.modulus is None or sy.units.modulus is None or \
             sx.units != sy.units:

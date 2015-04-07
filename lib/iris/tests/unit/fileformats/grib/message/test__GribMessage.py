@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -19,9 +19,13 @@ Unit tests for the `iris.fileformats.grib.message._GribMessage` class.
 
 """
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
+
+from abc import ABCMeta, abstractmethod
 
 import biggus
 import mock
@@ -30,6 +34,9 @@ import numpy as np
 from iris.exceptions import TranslationError
 from iris.fileformats.grib._message import _GribMessage
 from iris.tests.unit.fileformats.grib import _make_test_message
+
+
+SECTION_6_NO_BITMAP = {'bitMapIndicator': 255, 'bitmap': None}
 
 
 @tests.skip_data
@@ -49,16 +56,77 @@ class Test_sections(tests.IrisTest):
         self.assertIs(message.sections, mock.sentinel.SECTIONS)
 
 
+class Test_data__masked(tests.IrisTest):
+    def setUp(self):
+        self.bitmap = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1])
+        self.shape = (3, 4)
+        self._section_3 = {'sourceOfGridDefinition': 0,
+                           'numberOfOctectsForNumberOfPoints': 0,
+                           'interpretationOfNumberOfPoints': 0,
+                           'gridDefinitionTemplateNumber': 0,
+                           'scanningMode': 0,
+                           'Nj': self.shape[0],
+                           'Ni': self.shape[1]}
+
+    def test_no_bitmap(self):
+        values = np.arange(12)
+        message = _make_test_message({3: self._section_3,
+                                      6: SECTION_6_NO_BITMAP,
+                                      7: {'codedValues': values}})
+        result = message.data.ndarray()
+        expected = values.reshape(self.shape)
+        self.assertEqual(result.shape, self.shape)
+        self.assertArrayEqual(result, expected)
+
+    def test_bitmap_present(self):
+        # Test the behaviour where bitmap and codedValues shapes
+        # are not equal.
+        input_values = np.arange(5)
+        output_values = np.array([-1, -1, 0, 1, -1, -1, -1, 2, -1, 3, -1, 4])
+        message = _make_test_message({3: self._section_3,
+                                      6: {'bitMapIndicator': 0,
+                                          'bitmap': self.bitmap},
+                                      7: {'codedValues': input_values}})
+        result = message.data.masked_array()
+        expected = np.ma.masked_array(output_values,
+                                      np.logical_not(self.bitmap))
+        expected = expected.reshape(self.shape)
+        self.assertMaskedArrayEqual(result, expected)
+
+    def test_bitmap__shapes_mismatch(self):
+        # Test the behaviour where bitmap and codedValues shapes do not match.
+        # Too many or too few unmasked values in codedValues will cause this.
+        values = np.arange(6)
+        message = _make_test_message({3: self._section_3,
+                                      6: {'bitMapIndicator': 0,
+                                          'bitmap': self.bitmap},
+                                      7: {'codedValues': values}})
+        with self.assertRaisesRegexp(TranslationError, 'do not match'):
+            message.data.masked_array()
+
+    def test_bitmap__invalid_indicator(self):
+        values = np.arange(12)
+        message = _make_test_message({3: self._section_3,
+                                      6: {'bitMapIndicator': 100,
+                                          'bitmap': None},
+                                      7: {'codedValues': values}})
+        with self.assertRaisesRegexp(TranslationError, 'unsupported bitmap'):
+            message.data.ndarray()
+
+
 class Test_data__unsupported(tests.IrisTest):
     def test_unsupported_grid_definition(self):
-        message = _make_test_message({3: {'sourceOfGridDefinition': 1}})
+        message = _make_test_message({3: {'sourceOfGridDefinition': 1},
+                                      6: SECTION_6_NO_BITMAP})
         with self.assertRaisesRegexp(TranslationError, 'source'):
             message.data
 
     def test_unsupported_quasi_regular__number_of_octets(self):
         message = _make_test_message(
             {3: {'sourceOfGridDefinition': 0,
-                 'numberOfOctectsForNumberOfPoints': 1}})
+                 'numberOfOctectsForNumberOfPoints': 1,
+                 'gridDefinitionTemplateNumber': 0},
+             6: SECTION_6_NO_BITMAP})
         with self.assertRaisesRegexp(TranslationError, 'quasi-regular'):
             message.data
 
@@ -66,7 +134,9 @@ class Test_data__unsupported(tests.IrisTest):
         message = _make_test_message(
             {3: {'sourceOfGridDefinition': 0,
                  'numberOfOctectsForNumberOfPoints': 0,
-                 'interpretationOfNumberOfPoints': 1}})
+                 'interpretationOfNumberOfPoints': 1,
+                 'gridDefinitionTemplateNumber': 0},
+             6: SECTION_6_NO_BITMAP})
         with self.assertRaisesRegexp(TranslationError, 'quasi-regular'):
             message.data
 
@@ -75,35 +145,32 @@ class Test_data__unsupported(tests.IrisTest):
             {3: {'sourceOfGridDefinition': 0,
                  'numberOfOctectsForNumberOfPoints': 0,
                  'interpretationOfNumberOfPoints': 0,
-                 'gridDefinitionTemplateNumber': 1}})
+                 'gridDefinitionTemplateNumber': 2}})
         with self.assertRaisesRegexp(TranslationError, 'template'):
             message.data
 
 
-class Test_data__grid_template_0(tests.IrisTest):
+# Abstract, mix-in class for testing the `data` attribute for various
+# grid definition templates.
+class Mixin_data__grid_template(object):
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def section_3(self, scanning_mode):
+        raise NotImplementedError()
+
     def test_unsupported_scanning_mode(self):
         message = _make_test_message(
-            {3: {'sourceOfGridDefinition': 0,
-                 'numberOfOctectsForNumberOfPoints': 0,
-                 'interpretationOfNumberOfPoints': 0,
-                 'gridDefinitionTemplateNumber': 0,
-                 'scanningMode': 1}})
+            {3: self.section_3(1),
+             6: SECTION_6_NO_BITMAP})
         with self.assertRaisesRegexp(TranslationError, 'scanning mode'):
             message.data
 
     def _test(self, scanning_mode):
-        def make_raw_message():
-            sections = {3: {'sourceOfGridDefinition': 0,
-                            'numberOfOctectsForNumberOfPoints': 0,
-                            'interpretationOfNumberOfPoints': 0,
-                            'gridDefinitionTemplateNumber': 0,
-                            'scanningMode': scanning_mode,
-                            'Nj': 3,
-                            'Ni': 4},
-                        7: {'codedValues': np.arange(12)}}
-            raw_message = mock.Mock(sections=sections)
-            return raw_message
-        message = _GribMessage(make_raw_message(), make_raw_message, False)
+        message = _make_test_message(
+            {3: self.section_3(scanning_mode),
+             6: SECTION_6_NO_BITMAP,
+             7: {'codedValues': np.arange(12)}})
         data = message.data
         self.assertIsInstance(data, biggus.Array)
         self.assertEqual(data.shape, (3, 4))
@@ -122,6 +189,64 @@ class Test_data__grid_template_0(tests.IrisTest):
 
     def test_regular_mode_64_128(self):
         self._test(64 | 128)
+
+
+def _example_section_3(grib_definition_template_number, scanning_mode):
+    return {'sourceOfGridDefinition': 0,
+            'numberOfOctectsForNumberOfPoints': 0,
+            'interpretationOfNumberOfPoints': 0,
+            'gridDefinitionTemplateNumber': grib_definition_template_number,
+            'scanningMode': scanning_mode,
+            'Nj': 3,
+            'Ni': 4}
+
+
+class Test_data__grid_template_0(tests.IrisTest, Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        return _example_section_3(0, scanning_mode)
+
+
+class Test_data__grid_template_1(tests.IrisTest, Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        return _example_section_3(1, scanning_mode)
+
+
+class Test_data__grid_template_5(tests.IrisTest, Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        return _example_section_3(5, scanning_mode)
+
+
+class Test_data__grid_template_12(tests.IrisTest, Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        return _example_section_3(12, scanning_mode)
+
+
+class Test_data__grid_template_40_regular(tests.IrisTest,
+                                          Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        return _example_section_3(40, scanning_mode)
+
+
+class Test_data__grid_template_90(tests.IrisTest, Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        section_3 = _example_section_3(90, scanning_mode)
+        # Exceptionally, dimensions are 'Nx' + 'Ny' instead of 'Ni' + 'Nj'.
+        section_3['Nx'] = section_3['Ni']
+        section_3['Ny'] = section_3['Nj']
+        del section_3['Ni']
+        del section_3['Nj']
+        return section_3
+
+
+class Test_data__unknown_grid_template(tests.IrisTest):
+    def test(self):
+        message = _make_test_message(
+            {3: _example_section_3(999, 0),
+             6: SECTION_6_NO_BITMAP,
+             7: {'codedValues': np.arange(12)}})
+        with self.assertRaisesRegexp(TranslationError,
+                                     'template 999 is not supported'):
+            data = message.data
 
 
 if __name__ == '__main__':

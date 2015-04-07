@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -29,6 +29,9 @@ switched to "tkagg" to allow the interactive visual inspection of
 graphical test results.
 
 """
+
+from __future__ import (absolute_import, division, print_function)
+
 import collections
 import contextlib
 import difflib
@@ -40,7 +43,6 @@ import logging
 import mock
 import os
 import os.path
-import re
 import shutil
 import StringIO
 import subprocess
@@ -82,10 +84,16 @@ _RESULT_PATH = os.path.join(os.path.dirname(__file__), 'results')
 if '--data-files-used' in sys.argv:
     sys.argv.remove('--data-files-used')
     fname = '/var/tmp/all_iris_test_resource_paths.txt'
-    print 'saving list of files used by tests to %s' % fname
+    print('saving list of files used by tests to %s' % fname)
     _EXPORT_DATAPATHS_FILE = open(fname, 'w')
 else:
     _EXPORT_DATAPATHS_FILE = None
+
+
+if '--create-missing' in sys.argv:
+    sys.argv.remove('--create-missing')
+    print('Allowing creation of missing test results.')
+    os.environ['IRIS_TEST_CREATE_MISSING'] = 'true'
 
 
 # A shared logger for use by unit tests
@@ -122,7 +130,9 @@ def main():
             lines.insert(11, '                       NOTE: To compare results of failing tests, ')
             lines.insert(12, '                             use idiff.py instead')
             lines.insert(13, '  --data-files-used    Save a list of files used to a temporary file')
-            print '\n'.join(lines)
+            lines.insert(
+                14, '  -m                   Create missing test results')
+            print('\n'.join(lines))
     else:
         unittest.main()
 
@@ -239,16 +249,36 @@ class IrisTest(unittest.TestCase):
 
         self.assertCML(cubes, reference_filename, checksum=False)
 
-    def assertCDL(self, netcdf_filename, reference_filename=None, flags='-h',
-                  basename=None):
+    def assertCDL(self, netcdf_filename, reference_filename=None, flags='-h'):
         """
-        Converts the given CF-netCDF file to CDL for comparison with
-        the reference CDL file, or creates the reference file if it
-        doesn't exist.
+        Test that the CDL for the given netCDF file matches the contents
+        of the reference file.
+
+        If the environment variable IRIS_TEST_CREATE_MISSING is
+        non-empty, the reference file is created if it doesn't exist.
+
+        Args:
+
+        * netcdf_filename:
+            The path to the netCDF file.
+
+        Kwargs:
+
+        * reference_filename:
+            The relative path (relative to the test results directory).
+            If omitted, the result is generated from the calling
+            method's name, class, and module using
+            :meth:`iris.tests.IrisTest.result_path`.
+
+        * flags:
+            Command-line flags for `ncdump`, as either a whitespace
+            separated string or an iterable. Defaults to '-h'.
 
         """
         if reference_filename is None:
-            reference_filename = self.result_path(basename, "cdl")
+            reference_path = self.result_path(None, 'cdl')
+        else:
+            reference_path = get_result_path(reference_filename)
 
         # Convert the netCDF file to CDL file format.
         cdl_filename = iris.util.create_temp_filename(suffix='.cdl')
@@ -277,20 +307,38 @@ class IrisTest(unittest.TestCase):
         cdl = ''.join(lines)
 
         os.remove(cdl_filename)
-        reference_path = get_result_path(reference_filename)
-        self._check_same(cdl, reference_path, reference_filename, type_comparison_name='CDL')
+        self._check_same(cdl, reference_path, type_comparison_name='CDL')
 
-    def assertCML(self, cubes, reference_filename=None, checksum=True,
-                  basename=None):
+    def assertCML(self, cubes, reference_filename=None, checksum=True):
         """
-        Checks the given cubes match the reference file, or creates the
-        reference file if it doesn't exist.
+        Test that the CML for the given cubes matches the contents of
+        the reference file.
+
+        If the environment variable IRIS_TEST_CREATE_MISSING is
+        non-empty, the reference file is created if it doesn't exist.
+
+        Args:
+
+        * cubes:
+            Either a Cube or a sequence of Cubes.
+
+        Kwargs:
+
+        * reference_filename:
+            The relative path (relative to the test results directory).
+            If omitted, the result is generated from the calling
+            method's name, class, and module using
+            :meth:`iris.tests.IrisTest.result_path`.
+
+        * checksum:
+            When True, causes the CML to include a checksum for each
+            Cube's data. Defaults to True.
 
         """
         if isinstance(cubes, iris.cube.Cube):
             cubes = [cubes]
         if reference_filename is None:
-            reference_filename = self.result_path(basename, "cml")
+            reference_filename = self.result_path(None, 'cml')
 
         if isinstance(cubes, (list, tuple)):
             xml = iris.cube.CubeList(cubes).xml(checksum=checksum, order=False,
@@ -298,7 +346,7 @@ class IrisTest(unittest.TestCase):
         else:
             xml = cubes.xml(checksum=checksum, order=False, byteorder=False)
         reference_path = get_result_path(reference_filename)
-        self._check_same(xml, reference_path, reference_filename)
+        self._check_same(xml, reference_path)
 
     def assertTextFile(self, source_filename, reference_filename, desc="text file"):
         """Check if two text files are the same, printing any diffs."""
@@ -312,7 +360,7 @@ class IrisTest(unittest.TestCase):
 
     def assertCubeDataAlmostEqual(self, cube, reference_filename, *args, **kwargs):
         reference_path = get_result_path(reference_filename)
-        if os.path.isfile(reference_path):
+        if self._check_reference_file(reference_path):
             kwargs.setdefault('err_msg', 'Reference file %s' % reference_path)
 
             result = np.load(reference_path)
@@ -337,27 +385,52 @@ class IrisTest(unittest.TestCase):
 
     def assertFilesEqual(self, test_filename, reference_filename):
         reference_path = get_result_path(reference_filename)
-        if os.path.isfile(reference_path):
-            self.assertTrue(filecmp.cmp(test_filename, reference_path))
+        if self._check_reference_file(reference_path):
+            fmt = 'test file {!r} does not match reference {!r}.'
+            self.assertTrue(filecmp.cmp(test_filename, reference_path),
+                            fmt.format(test_filename, reference_path))
         else:
             self._ensure_folder(reference_path)
             logger.warning('Creating result file: %s', reference_path)
             shutil.copy(test_filename, reference_path)
 
-    def assertString(self, string, reference_filename):
-        reference_path = get_result_path(reference_filename)
+    def assertString(self, string, reference_filename=None):
+        """
+        Test that `string` matches the contents of the reference file.
+
+        If the environment variable IRIS_TEST_CREATE_MISSING is
+        non-empty, the reference file is created if it doesn't exist.
+
+        Args:
+
+        * string:
+            The string to check.
+
+        Kwargs:
+
+        * reference_filename:
+            The relative path (relative to the test results directory).
+            If omitted, the result is generated from the calling
+            method's name, class, and module using
+            :meth:`iris.tests.IrisTest.result_path`.
+
+        """
+        if reference_filename is None:
+            reference_path = self.result_path(None, 'txt')
+        else:
+            reference_path = get_result_path(reference_filename)
         # If the test string is a unicode string, encode as
         # utf-8 before comparison to the reference string.
         if isinstance(string, unicode):
             string = string.encode('utf-8')
-        self._check_same(string, reference_path, reference_filename,
+        self._check_same(string, reference_path,
                          type_comparison_name='Strings')
 
     def assertRepr(self, obj, reference_filename):
         self.assertString(repr(obj), reference_filename)
 
-    def _check_same(self, item, reference_path, reference_filename, type_comparison_name='CML'):
-        if os.path.isfile(reference_path):
+    def _check_same(self, item, reference_path, type_comparison_name='CML'):
+        if self._check_reference_file(reference_path):
             reference = ''.join(open(reference_path, 'r').readlines())
             self._assert_str_same(reference, item, reference_path,
                                   type_comparison_name)
@@ -377,7 +450,8 @@ class IrisTest(unittest.TestCase):
         doc.appendChild(obj.xml_element(doc))
         pretty_xml = doc.toprettyxml(indent="  ")
         reference_path = get_result_path(reference_filename)
-        self._check_same(pretty_xml, reference_path, reference_filename, type_comparison_name='XML')
+        self._check_same(pretty_xml, reference_path,
+                         type_comparison_name='XML')
 
     def assertArrayEqual(self, a, b, err_msg=''):
         np.testing.assert_array_equal(a, b, err_msg=err_msg)
@@ -484,8 +558,10 @@ class IrisTest(unittest.TestCase):
     @contextlib.contextmanager
     def temp_filename(self, suffix=''):
         filename = iris.util.create_temp_filename(suffix)
-        yield filename
-        os.remove(filename)
+        try:
+            yield filename
+        finally:
+            os.remove(filename)
 
     def file_checksum(self, file_path):
         """
@@ -529,6 +605,14 @@ class IrisTest(unittest.TestCase):
         self._assertion_counts[test_id] += 1
 
         return test_id + '.' + str(assertion_id)
+
+    def _check_reference_file(self, reference_path):
+        reference_exists = os.path.isfile(reference_path)
+        if not (reference_exists or
+                os.environ.get('IRIS_TEST_CREATE_MISSING')):
+            msg = 'Missing test result: {}'.format(reference_path)
+            raise AssertionError(msg)
+        return reference_exists
 
     def _ensure_folder(self, path):
         dir_path = os.path.dirname(path)
@@ -587,13 +671,57 @@ class IrisTest(unittest.TestCase):
 
             if _DISPLAY_FIGURES:
                 if err:
-                    print 'Image comparison would have failed. Message: %s' % err
+                    print('Image comparison would have failed. Message: %s' % err)
                 plt.show()
             else:
                 assert not err, 'Image comparison failed. Message: %s' % err
 
         finally:
             plt.close()
+
+    def _remove_testcase_patches(self):
+        """Helper to remove per-testcase patches installed by :meth:`patch`."""
+        # Remove all patches made, ignoring errors.
+        for p in self.testcase_patches:
+            p.stop()
+        # Reset per-test patch control variable.
+        self.testcase_patches.clear()
+
+    def patch(self, *args, **kwargs):
+        """
+        Install a mock.patch, to be removed after the current test.
+
+        The patch is created with mock.patch(*args, **kwargs).
+
+        Returns:
+            The substitute object returned by patch.start().
+
+        For example::
+
+            mock_call = self.patch('module.Class.call', return_value=1)
+            module_Class_instance.call(3, 4)
+            self.assertEqual(mock_call.call_args_list, [mock.call(3, 4)])
+
+        """
+        # Make the new patch and start it.
+        patch = mock.patch(*args, **kwargs)
+        start_result = patch.start()
+
+        # Create the per-testcases control variable if it does not exist.
+        # NOTE: this mimics a setUp method, but continues to work when a
+        # subclass defines its own setUp.
+        if not hasattr(self, 'testcase_patches'):
+            self.testcase_patches = {}
+
+        # When installing the first patch, schedule remove-all at cleanup.
+        if not self.testcase_patches:
+            self.addCleanup(self._remove_testcase_patches)
+
+        # Record the new patch and start object for reference.
+        self.testcase_patches[patch] = start_result
+
+        # Return patch replacement object.
+        return start_result
 
 
 class GraphicsTest(IrisTest):

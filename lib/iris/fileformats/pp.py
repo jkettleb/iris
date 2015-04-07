@@ -19,6 +19,8 @@ Provides UK Met Office Post Process (PP) format specific capabilities.
 
 """
 
+from __future__ import (absolute_import, division, print_function)
+
 import abc
 import collections
 from copy import deepcopy
@@ -204,12 +206,12 @@ EXTRA_DATA = {
 
 #: Maps lbuser[0] to numpy data type. "default" will be interpreted if
 #: no match is found, providing a warning in such a case.
-LBUSER_DTYPE_LOOKUP = {1 :np.dtype('>f4'), 
-                       2 :np.dtype('>i4'), 
-                       3 :np.dtype('>i4'),
-                       -1:np.dtype('>f4'),
-                       -2:np.dtype('>i4'),
-                       -3:np.dtype('>i4'),
+LBUSER_DTYPE_LOOKUP = {1: np.dtype('>f4'),
+                       2: np.dtype('>i4'),
+                       3: np.dtype('>i4'),
+                       -1: np.dtype('>f4'),
+                       -2: np.dtype('>i4'),
+                       -3: np.dtype('>i4'),
                        'default': np.dtype('>f4'),
                        }
 
@@ -234,7 +236,7 @@ LBPROC_PAIRS = ((1, "Difference from another experiment"),
                 (131072, "Mean over an ensemble of parallel runs"))
 
 # lbproc_map is dict mapping lbproc->English and English->lbproc essentially a one to one mapping
-lbproc_map = {x : y for x,y in itertools.chain(LBPROC_PAIRS, ((y,x) for x,y in LBPROC_PAIRS))}
+lbproc_map = {x : y for x, y in itertools.chain(LBPROC_PAIRS, ((y, x) for x, y in LBPROC_PAIRS))}
 
 
 class STASH(collections.namedtuple('STASH', 'model section item')):
@@ -256,7 +258,7 @@ class STASH(collections.namedtuple('STASH', 'model section item')):
         3
 
     String conversion results in the MSI format:
-        >>> print iris.fileformats.pp.STASH(1, 16, 203)
+        >>> print(iris.fileformats.pp.STASH(1, 16, 203))
         m01s16i203
 
     """
@@ -347,11 +349,11 @@ class SplittableInt(object):
     A class to hold integers which can easily get each decimal digit individually.
 
     >>> three_six_two = SplittableInt(362)
-    >>> print three_six_two
+    >>> print(three_six_two)
     362
-    >>> print three_six_two[0]
+    >>> print(three_six_two[0])
     2
-    >>> print three_six_two[2]
+    >>> print(three_six_two[2])
     3
 
     .. note:: No support for negative numbers
@@ -367,12 +369,12 @@ class SplittableInt(object):
             A special mapping to provide name based access to specific integer positions:
 
                 >>> a = SplittableInt(1234, {'hundreds': 2})
-                >>> print a.hundreds
+                >>> print(a.hundreds)
                 2
                 >>> a.hundreds = 9
-                >>> print a.hundreds
+                >>> print(a.hundreds)
                 9
-                >>> print a
+                >>> print(a)
                 1934
 
         """
@@ -510,6 +512,10 @@ class BitwiseInt(SplittableInt):
     """
     A class to hold an integer, of fixed bit-length, which can easily get/set each bit individually.
 
+    .. deprecated:: 1.8
+
+        Please use `int` instead.
+
     .. note::
 
         Uses a fixed number of bits.
@@ -533,6 +539,7 @@ class BitwiseInt(SplittableInt):
 
     def __init__(self, value, num_bits=None):
         """ """ # intentionally empty docstring as all covered in the class docstring.
+        warnings.warn('BitwiseInt is deprecated - please use `int` instead.')
 
         SplittableInt.__init__(self, value)
         self.flags = ()
@@ -618,20 +625,186 @@ class BitwiseInt(SplittableInt):
             SplittableInt.__setattr__(self, name, value)
 
 
+def _make_flag_getter(value):
+    def getter(self):
+        warnings.warn('The `flag` attributes are deprecated - please use '
+                      'integer bitwise operators instead.')
+        return int(bool(self._value & value))
+    return getter
+
+
+def _make_flag_setter(value):
+    def setter(self, flag):
+        warnings.warn('The `flag` attributes are deprecated - please use '
+                      'integer bitwise operators instead.')
+        if not isinstance(flag, bool):
+            raise TypeError('Can only set bits to True or False')
+        if flag:
+            self._value |= value
+        else:
+            self._value &= ~value
+    return setter
+
+
+class _FlagMetaclass(type):
+    NUM_BITS = 18
+
+    def __new__(cls, classname, bases, class_dict):
+        for i in xrange(cls.NUM_BITS):
+            value = 2 ** i
+            name = 'flag{}'.format(value)
+            class_dict[name] = property(_make_flag_getter(value),
+                                        _make_flag_setter(value))
+        class_dict['NUM_BITS'] = cls.NUM_BITS
+        return type.__new__(cls, classname, bases, class_dict)
+
+
+class _LBProc(BitwiseInt):
+    # Use a metaclass to define the `flag1`, `flag2`, `flag4, etc.
+    # properties.
+    __metaclass__ = _FlagMetaclass
+
+    def __init__(self, value):
+        """
+        Args:
+
+        * value (int):
+            The initial value which will determine the flags.
+
+        """
+        if value < 0:
+            raise ValueError('Negative numbers not supported with '
+                             'splittable integers object')
+        self._value = int(value)
+
+    def __len__(self):
+        """
+        Base ten length.
+
+        .. deprecated:: 1.8
+
+            The value of a BitwiseInt only makes sense in base-two.
+
+        """
+        warnings.warn('Length is deprecated')
+        return len(str(self._value))
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+
+    def __getitem__(self, key):
+        """
+        Base ten indexing support.
+
+        .. deprecated:: 1.8
+
+            The value of an _LBProc only makes sense in base-two.
+
+        """
+        warnings.warn('Indexing is deprecated')
+        try:
+            value = int('0' + str(self._value)[::-1][key][::-1])
+        except IndexError:
+            value = 0
+        # If the key returns a list of values, then combine them
+        # together to an integer.
+        if isinstance(value, list):
+            value = sum(10**i * val for i, val in enumerate(value))
+        return value
+
+    def __setitem__(self, key, value):
+        """
+        Base ten indexing support.
+
+        .. deprecated:: 1.8
+
+            The value of an _LBProc only makes sense in base-two.
+
+        """
+        warnings.warn('Indexing is deprecated')
+        if (not isinstance(value, int) or value < 0):
+            msg = 'Can only set {} as a positive integer value.'.format(key)
+            raise ValueError(msg)
+
+        if isinstance(key, slice):
+            if ((key.start is not None and key.start < 0) or
+                (key.step is not None and key.step < 0) or
+                (key.stop is not None and key.stop < 0)):
+                raise ValueError('Cannot assign a value with slice '
+                                 'objects containing negative indices.')
+
+            # calculate the current length of the value of this string
+            current_length = len(range(*key.indices(len(self))))
+
+            # Get indices for as many digits as have been requested.
+            # Putting the upper limit on the number of digits at 100.
+            indices = range(*key.indices(100))
+            if len(indices) < len(str(value)):
+                fmt = 'Cannot put {} into {} as it has too many digits.'
+                raise ValueError(fmt.format(value, key))
+
+            # Iterate over each of the indices in the slice, zipping
+            # them together with the associated digit.
+            filled_value = str(value).zfill(current_length)
+            for index, digit in zip(indices, filled_value[::-1]):
+                # assign each digit to the associated index
+                self.__setitem__(index, int(digit))
+        else:
+            if value > 9:
+                raise ValueError('Can only set a single digit')
+            # Setting a single digit.
+            factor = 10 ** key
+            head, tail = divmod(self._value, factor)
+            head = head // 10
+            self._value = (head * 10 + value) * factor + tail
+
+    def __iadd__(self, value):
+        self._value += value
+        return self
+
+    def __and__(self, value):
+        return self._value & value
+
+    def __iand__(self, value):
+        self._value &= value
+        return self
+
+    def __ior__(self, value):
+        self._value |= value
+        return self
+
+    def __int__(self):
+        return self._value
+
+    def __repr__(self):
+        return '_LBProc({})'.format(self._value)
+
+    def __str__(self):
+        return str(self._value)
+
+    @property
+    def flags(self):
+        warnings.warn('The `flags` attribute is deprecated - please use '
+                      'integer bitwise operators instead.')
+        return tuple(2 ** i for i in xrange(self.NUM_BITS)
+                     if self._value & 2 ** i)
+
+
 class PPDataProxy(object):
     """A reference to the data payload of a single PP field."""
 
-    __slots__ = ('shape', 'src_dtype', 'path', 'offset', 'data_len', '_lbpack',
-                 'mdi', 'mask')
-    
-    def __init__(self, shape, src_dtype, path, offset, data_len, lbpack, mdi,
-                 mask):
+    __slots__ = ('shape', 'src_dtype', 'path', 'offset', 'data_len',
+                 '_lbpack', 'boundary_packing', 'mdi', 'mask')
+
+    def __init__(self, shape, src_dtype, path, offset, data_len,
+                 lbpack, boundary_packing, mdi, mask):
         self.shape = shape
         self.src_dtype = src_dtype
         self.path = path
         self.offset = offset
         self.data_len = data_len
         self.lbpack = lbpack
+        self.boundary_packing = boundary_packing
         self.mdi = mdi
         self.mask = mask
 
@@ -664,7 +837,9 @@ class PPDataProxy(object):
         with open(self.path, 'rb') as pp_file:
             pp_file.seek(self.offset, os.SEEK_SET)
             data_bytes = pp_file.read(self.data_len)
-            data = _data_bytes_to_shaped_array(data_bytes, self.lbpack,
+            data = _data_bytes_to_shaped_array(data_bytes,
+                                               self.lbpack,
+                                               self.boundary_packing,
                                                self.shape, self.src_dtype,
                                                self.mdi, self.mask)
         return data.__getitem__(keys)
@@ -702,7 +877,8 @@ class PPDataProxy(object):
         return result
 
 
-def _data_bytes_to_shaped_array(data_bytes, lbpack, data_shape, data_type, mdi,
+def _data_bytes_to_shaped_array(data_bytes, lbpack, boundary_packing,
+                                data_shape, data_type, mdi,
                                 mask=None):
     """
     Convert the already read binary data payload into a numpy array, unpacking
@@ -728,12 +904,10 @@ def _data_bytes_to_shaped_array(data_bytes, lbpack, data_shape, data_type, mdi,
         data.byteswap(True)
         data.dtype = data.dtype.newbyteorder('=')
 
-    if hasattr(lbpack, 'boundary_packing'):
+    if boundary_packing is not None:
         # Convert a long string of numbers into a "lateral boundary
         # condition" array, which is split into 4 quartiles, North
         # East, South, West and where North and South contain the corners.
-        
-        boundary_packing = lbpack.boundary_packing
         compressed_data = data
         data = np.ma.masked_all(data_shape)
 
@@ -829,8 +1003,9 @@ def _pp_attribute_names(header_defn):
     normal_headers = list(name for name, positions in header_defn if name not in _SPECIAL_HEADERS)
     special_headers = list('_' + name for name in _SPECIAL_HEADERS)
     extra_data = EXTRA_DATA.values()
-    raw_attributes = ['_raw_header', 'raw_lbtim', 'raw_lbpack']
-    return normal_headers + special_headers + extra_data + raw_attributes
+    special_attributes = ['_raw_header', 'raw_lbtim', 'raw_lbpack',
+                          'boundary_packing']
+    return normal_headers + special_headers + extra_data + special_attributes
 
 
 class PPField(object):
@@ -840,12 +1015,12 @@ class PPField(object):
     A PPField instance can easily access the PP header "words" as attributes with some added useful capabilities::
 
         for field in iris.fileformats.pp.load(filename):
-            print field.lbyr
-            print field.lbuser
-            print field.lbuser[0]
-            print field.lbtim
-            print field.lbtim.ia
-            print field.t1
+            print(field.lbyr)
+            print(field.lbuser)
+            print(field.lbuser[0])
+            print(field.lbtim)
+            print(field.lbtim.ia)
+            print(field.t1)
 
     """
 
@@ -861,6 +1036,7 @@ class PPField(object):
         self._raw_header = header
         self.raw_lbtim = None
         self.raw_lbpack = None
+        self.boundary_packing = None
         if header is not None:
             self.raw_lbtim = header[self.HEADER_DICT['lbtim'][0]]
             self.raw_lbpack = header[self.HEADER_DICT['lbpack'][0]]
@@ -959,7 +1135,7 @@ class PPField(object):
         if (not hasattr(self, '_stash') or
                 self.lbuser[6] != self._stash.lbuser6() or
                 self.lbuser[3] != self._stash.lbuser3()):
-            self._stash = STASH(self.lbuser[6], self.lbuser[3] / 1000, self.lbuser[3] % 1000)
+            self._stash = STASH(self.lbuser[6], self.lbuser[3] // 1000, self.lbuser[3] % 1000)
         return self._stash
     
     @stash.setter
@@ -976,17 +1152,16 @@ class PPField(object):
         self.lbuser[6] = self._stash.lbuser6()
         self.lbuser[3] = self._stash.lbuser3()
 
-    # lbtim
-    def _lbtim_setter(self, new_value):
-        if not isinstance(new_value, SplittableInt):
-            self.raw_lbtim = new_value
-            # add the ia/ib/ic values for lbtim
-            new_value = SplittableInt(new_value, {'ia':slice(2, None), 'ib':1, 'ic':0})
-        else:
-            self.raw_lbtim = new_value._value
-        self._lbtim = new_value
+    @property
+    def lbtim(self):
+        return self._lbtim
 
-    lbtim = property(lambda self: self._lbtim, _lbtim_setter)
+    @lbtim.setter
+    def lbtim(self, value):
+        value = int(value)
+        self.raw_lbtim = value
+        self._lbtim = SplittableInt(value, {'ia': slice(2, None), 'ib': 1,
+                                            'ic': 0})
 
     # lbcode
     def _lbcode_setter(self, new_value):
@@ -1010,13 +1185,15 @@ class PPField(object):
 
     lbpack = property(lambda self: self._lbpack, _lbpack_setter)
 
-    # lbproc
-    def _lbproc_setter(self, new_value):
-        if not isinstance(new_value, BitwiseInt):
-            new_value = BitwiseInt(new_value, num_bits=18)
-        self._lbproc = new_value
+    @property
+    def lbproc(self):
+        return self._lbproc
 
-    lbproc = property(lambda self: self._lbproc, _lbproc_setter)
+    @lbproc.setter
+    def lbproc(self, value):
+        if not isinstance(value, _LBProc):
+            value = _LBProc(value)
+        self._lbproc = value
 
     @property
     def data(self):
@@ -1156,7 +1333,7 @@ class PPField(object):
                     extra_elem = extra_elem.ljust(ia, '\00')
 
                     # ia is now the datalength in WORDS of the string
-                    ia /= PP_WORD_DEPTH
+                    ia //= PP_WORD_DEPTH
                 else:
                     # ia is the datalength in WORDS
                     ia = np.product(extra_elem.shape)
@@ -1178,13 +1355,13 @@ class PPField(object):
                                   )
 
         # populate lbext in WORDS
-        lb[self.HEADER_DICT['lbext'][0]] = len_of_data_payload / PP_WORD_DEPTH
+        lb[self.HEADER_DICT['lbext'][0]] = len_of_data_payload // PP_WORD_DEPTH
 
         # Put the data length of pp.data into len_of_data_payload (in BYTES)
         len_of_data_payload += data.size * PP_WORD_DEPTH
 
         # populate lbrec in WORDS
-        lb[self.HEADER_DICT['lblrec'][0]] = len_of_data_payload / PP_WORD_DEPTH
+        lb[self.HEADER_DICT['lblrec'][0]] = len_of_data_payload // PP_WORD_DEPTH
 
         # populate lbuser[0] to have the data's datatype
         if data.dtype == np.dtype('>f4'):
@@ -1255,12 +1432,31 @@ class PPField(object):
         """Return a CoordSystem for this PPField.
 
         Returns:
-            Currently, a :class:`~iris.coord_systems.GeogCS` or :class:`~iris.coord_systems.RotatedGeogCS`.
+            Currently, a :class:`~iris.coord_systems.GeogCS` or
+            :class:`~iris.coord_systems.RotatedGeogCS`.
 
         """
-        geog_cs =  iris.coord_systems.GeogCS(EARTH_RADIUS)
-        if self.bplat != 90.0 or self.bplon != 0.0:
-            geog_cs = iris.coord_systems.RotatedGeogCS(self.bplat, self.bplon, ellipsoid=geog_cs)
+        geog_cs = iris.coord_systems.GeogCS(EARTH_RADIUS)
+
+        def degrees_ne(angle, ref_angle):
+            """
+            Return whether an angle differs significantly from a set value.
+
+            The inputs are in degrees.
+            The difference is judged significant if more than 0.0001 degrees.
+
+            """
+            return abs(angle - ref_angle) > 0.0001
+
+        if (degrees_ne(self.bplat, 90.0) or (degrees_ne(self.bplon, 0.0) and
+                                             degrees_ne(self.bplon, 180.0))):
+            # NOTE: when bplat,bplon=90,0 this encodes an unrotated system.
+            # However, the rotated system which is *equivalent* to an unrotated
+            # one actually has blat,bplon=90,180, due to a quirk in the
+            # definition equations.
+            # So we accept BPLON of 0 *or* 180 to mean 'unrotated'.
+            geog_cs = iris.coord_systems.RotatedGeogCS(
+                self.bplat, self.bplon, ellipsoid=geog_cs)
 
         return geog_cs
 
@@ -1460,7 +1656,7 @@ def load(filename, read_data=False):
     To iterate through all of the fields in a pp file::
 
         for field in iris.fileformats.pp.load(filename):
-            print field
+            print(field)
 
     """
     return _interpret_fields(_field_gen(filename, read_data_bytes=read_data))
@@ -1480,13 +1676,13 @@ def _interpret_fields(fields):
         # Store the first reference to a land mask, and use this as the
         # definitive mask for future fields in this generator.
         if land_mask is None and field.lbuser[6] == 1 and \
-                (field.lbuser[3] / 1000) == 0 and \
+                (field.lbuser[3] // 1000) == 0 and \
                 (field.lbuser[3] % 1000) == 30:
             land_mask = field
 
         # Handle land compressed data payloads,
         # when lbpack.n2 is 2.
-        if (field.raw_lbpack / 10 % 10) == 2:
+        if (field.raw_lbpack // 10 % 10) == 2:
             if land_mask is None:
                 landmask_compressed_fields.append(field)
                 continue
@@ -1523,7 +1719,9 @@ def _create_field_data(field, data_shape, land_mask):
     if isinstance(field._data, LoadedArrayBytes):
         loaded_bytes = field._data
         field._data = _data_bytes_to_shaped_array(loaded_bytes.bytes,
-                                                  field.lbpack, data_shape,
+                                                  field.lbpack,
+                                                  field.boundary_packing,
+                                                  data_shape,
                                                   loaded_bytes.dtype,
                                                   field.bmdi, land_mask)
     else:
@@ -1531,8 +1729,9 @@ def _create_field_data(field, data_shape, land_mask):
         # in order to support deferred data loading.
         fname, position, n_bytes, dtype = field._data
         proxy = PPDataProxy(data_shape, dtype,
-                            fname, position,
-                            n_bytes, field.raw_lbpack,
+                            fname, position, n_bytes,
+                            field.raw_lbpack,
+                            field.boundary_packing,
                             field.bmdi, land_mask)
         field._data = biggus.NumpyArrayAdapter(proxy)
 
@@ -1558,6 +1757,7 @@ def _field_gen(filename, read_data_bytes):
     pp_file_seek = pp_file.seek
     pp_file_read = pp_file.read
 
+    field_count = 0
     # Keep reading until we reach the end of file
     while True:
         # Move past the leading header length word
@@ -1572,7 +1772,13 @@ def _field_gen(filename, read_data_bytes):
         header = tuple(header_longs) + tuple(header_floats)
 
         # Make a PPField of the appropriate sub-class (depends on header release number)
-        pp_field = make_pp_field(header)
+        try:
+            pp_field = make_pp_field(header)
+        except ValueError as e:
+            msg = 'Unable to interpret field {}. {}. Skipping ' \
+                  'the remainder of the file.'.format(field_count, e.message)
+            warnings.warn(msg)
+            break
 
         # Skip the trailing 4-byte word containing the header length
         pp_file_seek(PP_WORD_DEPTH, os.SEEK_CUR)
@@ -1609,6 +1815,7 @@ def _field_gen(filename, read_data_bytes):
 
         # Skip that last 4 byte record telling me the length of the field I have already read
         pp_file_seek(PP_WORD_DEPTH, os.SEEK_CUR)
+        field_count += 1
         yield pp_field
     pp_file.close()
 

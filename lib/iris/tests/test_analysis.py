@@ -16,7 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from __future__ import division
+from __future__ import (absolute_import, division, print_function)
+
 # import iris tests first so that some things can be initialised before importing anything else
 import iris.tests as tests
 
@@ -577,8 +578,8 @@ class TestRotatedPole(tests.GraphicsTest):
         self._check_both_conversions(cube)
 
     def test_unrotate_nd(self):
-        rlons = np.array([[350., 352.],[350., 352.]])
-        rlats = np.array([[-5., -0.],[-4., -1.]])
+        rlons = np.array([[350., 352.], [350., 352.]])
+        rlats = np.array([[-5., -0.], [-4., -1.]])
 
         resx, resy = iris.analysis.cartography.unrotate_pole(rlons, rlats,
                                                              178.0, 38.0)
@@ -609,8 +610,8 @@ class TestRotatedPole(tests.GraphicsTest):
         self.assertArrayAlmostEqual(resy, soly)
 
     def test_rotate_nd(self):
-        rlons = np.array([[350., 351.],[352., 353.]])
-        rlats = np.array([[10., 15.],[20., 25.]])
+        rlons = np.array([[350., 351.], [352., 353.]])
+        rlats = np.array([[10., 15.], [20., 25.]])
 
         resx, resy = iris.analysis.cartography.rotate_pole(rlons, rlats,
                                                            20., 80.)

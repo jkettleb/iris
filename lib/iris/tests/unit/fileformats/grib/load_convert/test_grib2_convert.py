@@ -16,6 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Test function :func:`iris.fileformats.grib._load_convert.grib2_convert`."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # import iris tests first so that some things can be initialised
 # before importing anything else.
 import iris.tests as tests
@@ -24,8 +26,6 @@ import copy
 import mock
 
 import iris
-from iris.exceptions import TranslationError
-from iris.fileformats.grib._message import _GribMessage
 from iris.fileformats.grib._load_convert import grib2_convert
 from iris.tests.unit.fileformats.grib import _make_test_message
 
@@ -33,18 +33,13 @@ from iris.tests.unit.fileformats.grib import _make_test_message
 class Test(tests.IrisTest):
     def setUp(self):
         this = 'iris.fileformats.grib._load_convert'
-        patch = []
-        patch.append(mock.patch('{}.reference_time'.format(this),
-                                return_value=None))
-        patch.append(mock.patch('{}.grid_definition_section'.format(this)))
-        patch.append(mock.patch('{}.product_definition_section'.format(this)))
-        patch.append(mock.patch('{}.data_representation_section'.format(this)))
-        patch.append(mock.patch('{}.bitmap_section'.format(this)))
-        for p in patch:
-            p.start()
-            self.addCleanup(p.stop)
+        self.patch('{}.reference_time_coord'.format(this), return_value=None)
+        self.patch('{}.grid_definition_section'.format(this))
+        self.patch('{}.product_definition_section'.format(this))
+        self.patch('{}.data_representation_section'.format(this))
+        self.patch('{}.bitmap_section'.format(this))
 
-    def test_call(self):
+    def test(self):
         sections = [{'discipline': mock.sentinel.discipline},       # section 0
                     {'centre': 'ecmf',                              # section 1
                      'tablesVersion': mock.sentinel.tablesVersion},
@@ -62,11 +57,11 @@ class Test(tests.IrisTest):
         expected = copy.deepcopy(metadata)
         centre = 'European Centre for Medium Range Weather Forecasts'
         expected['attributes'] = {'centre': centre}
+        # The call being tested.
         grib2_convert(field, metadata)
-
         self.assertEqual(metadata, expected)
         this = iris.fileformats.grib._load_convert
-        this.reference_time.assert_called_with(sections[1])
+        this.reference_time_coord.assert_called_with(sections[1])
         this.grid_definition_section.assert_called_with(sections[3],
                                                         expected)
         args = (sections[4], expected, sections[0]['discipline'],

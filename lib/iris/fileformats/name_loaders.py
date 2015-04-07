@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2013 - 2014, Met Office
+# (C) British Crown Copyright 2013 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -16,6 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """NAME file format loading functions."""
 
+from __future__ import (absolute_import, division, print_function)
+
 import collections
 import datetime
 from itertools import izip
@@ -28,6 +30,7 @@ from iris.coords import AuxCoord, DimCoord, CellMethod
 import iris.coord_systems
 import iris.cube
 from iris.exceptions import TranslationError
+import iris.util
 import iris.unit
 
 
@@ -403,10 +406,15 @@ def _generate_cubes(header, column_headings, coords, data_arrays,
                 pts = time_unit.date2num(coord.values)
 
             if coord.dimension is not None:
+                if coord.name == 'longitude':
+                    circular = iris.util._is_circular(pts, 360.0)
+                else:
+                    circular = False
                 icoord = DimCoord(points=pts,
                                   standard_name=coord.name,
                                   units=coord_units,
-                                  coord_system=coord_sys)
+                                  coord_system=coord_sys,
+                                  circular=circular)
                 if coord.name == 'time' and 'Av or Int period' in \
                         field_headings:
                     dt = coord.values - \
@@ -516,7 +524,7 @@ def load_NAMEIII_field(filename):
         header = read_header(file_handle)
 
         # Skip the next line (contains the word Fields:) in the file.
-        file_handle.next()
+        next(file_handle)
 
         # Read the lines of column definitions.
         # In this version a fixed order of column headings is assumed (and
@@ -555,7 +563,7 @@ def load_NAMEIII_field(filename):
         coords = [lon, lat, tdim]
 
         # Skip the line after the column headings.
-        file_handle.next()
+        next(file_handle)
 
         # Create data arrays to hold the data for each column.
         n_arrays = header['Number of field cols']
@@ -634,7 +642,7 @@ def load_NAMEII_field(filename):
         coords = [lon, lat, tdim]
 
         # Skip the blank line after the column headings.
-        file_handle.next()
+        next(file_handle)
 
         # Create data arrays to hold the data for each column.
         n_arrays = header['Number of fields']
@@ -665,7 +673,7 @@ def load_NAMEIII_timeseries(filename):
         header = read_header(file_handle)
 
         # skip the next line (contains the word Fields:) in the file.
-        file_handle.next()
+        next(file_handle)
 
         # Read the lines of column definitions - currently hardwired
         column_headings = {}
@@ -688,7 +696,7 @@ def load_NAMEIII_timeseries(filename):
             column_headings['Time Av or Int'])
 
         # Skip the line after the column headings.
-        file_handle.next()
+        next(file_handle)
 
         # Make a list of data lists to hold the data for each column.
         data_lists = [[] for i in range(header['Number of field cols'])]
@@ -752,7 +760,7 @@ def load_NAMEII_timeseries(filename):
         lat, lon = _build_lat_lon_for_NAME_timeseries(column_headings)
 
         # Skip the blank line after the column headings.
-        file_handle.next()
+        next(file_handle)
 
         # Make a list of data arrays to hold the data for each column.
         data_lists = [[] for i in range(header['Number of series'])]
@@ -832,7 +840,7 @@ def load_NAMEIII_trajectory(filename):
             z_column = i
             break
     if z_column is None:
-        raise iris.exceptions.TranslationError("Expected a Z column")
+        raise TranslationError("Expected a Z column")
 
     # Every column up to Z becomes a coordinate.
     coords = []
@@ -854,9 +862,16 @@ def load_NAMEIII_trajectory(filename):
                 name = "latitude"
             units = "degrees"
         elif name == "Z (m asl)":
-            name = "height"
+            name = "altitude"
             units = "m"
-            long_name = "height above sea level"
+            long_name = "altitude above sea level"
+        elif name == "Z (m agl)":
+            name = 'height'
+            units = "m"
+            long_name = "height above ground level"
+        elif name == "Z (FL)":
+            name = "flight_level"
+            long_name = name
 
         try:
             coord = DimCoord(values, units=units)

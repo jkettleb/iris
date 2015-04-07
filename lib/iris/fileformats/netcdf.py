@@ -24,6 +24,8 @@ Version 1.4, 27 February 2009.
 
 """
 
+from __future__ import (absolute_import, division, print_function)
+
 import collections
 import itertools
 import os
@@ -40,7 +42,8 @@ from pyke import knowledge_engine
 
 import iris.analysis
 from iris.aux_factory import HybridHeightFactory, HybridPressureFactory, \
-    OceanSigmaZFactory
+    OceanSigmaZFactory, OceanSigmaFactory, OceanSFactory, OceanSg1Factory, \
+    OceanSg2Factory
 import iris.coord_systems
 import iris.coords
 import iris.cube
@@ -109,7 +112,26 @@ _FACTORY_DEFNS = {
         primary='zlev',
         std_name='ocean_sigma_z_coordinate',
         formula_terms_format='sigma: {sigma} eta: {eta} depth: {depth} '
-        'depth_c: {depth_c} nsigma: {nsigma} zlev: {zlev}')
+        'depth_c: {depth_c} nsigma: {nsigma} zlev: {zlev}'),
+    OceanSigmaFactory: _FactoryDefn(
+        primary='sigma',
+        std_name='ocean_sigma_coordinate',
+        formula_terms_format='sigma: {sigma} eta: {eta} depth: {depth}'),
+    OceanSFactory: _FactoryDefn(
+        primary='s',
+        std_name='ocean_s_coordinate',
+        formula_terms_format='s: {s} eta: {eta} depth: {depth} a: {a} b: {b} '
+        'depth_c: {depth_c}'),
+    OceanSg1Factory: _FactoryDefn(
+        primary='s',
+        std_name='ocean_s_coordinate_g1',
+        formula_terms_format='s: {s} c: {c} eta: {eta} depth: {depth} '
+        'depth_c: {depth_c}'),
+    OceanSg2Factory: _FactoryDefn(
+        primary='s',
+        std_name='ocean_s_coordinate_g2',
+        formula_terms_format='s: {s} c: {c} eta: {eta} depth: {depth} '
+        'depth_c: {depth_c}')
 }
 
 
@@ -309,22 +331,22 @@ def _assert_case_specific_facts(engine, cf, cf_group):
 
 def _pyke_stats(engine, cf_name):
     if DEBUG:
-        print '-' * 80
-        print 'CF Data Variable: %r' % cf_name
+        print('-' * 80)
+        print('CF Data Variable: %r' % cf_name)
 
         engine.print_stats()
 
-        print 'Rules Triggered:'
+        print('Rules Triggered:')
 
         for rule in sorted(list(engine.rule_triggered)):
-            print '\t%s' % rule
+            print('\t%s' % rule)
 
-        print 'Case Specific Facts:'
+        print('Case Specific Facts:')
         kb_facts = engine.get_kb(_PYKE_FACT_BASE)
 
         for key in kb_facts.entity_lists.iterkeys():
             for arg in kb_facts.entity_lists[key].case_specific_facts:
-                print '\t%s%s' % (key, arg)
+                print('\t%s%s' % (key, arg))
 
 
 def _set_attributes(attributes, key, value):
@@ -406,15 +428,17 @@ def _load_aux_factory(engine, cube):
     formula_type = engine.requires.get('formula_type')
     if formula_type in ['atmosphere_hybrid_height_coordinate',
                         'atmosphere_hybrid_sigma_pressure_coordinate',
-                        'ocean_sigma_z_coordinate']:
+                        'ocean_sigma_z_coordinate', 'ocean_sigma_coordinate',
+                        'ocean_s_coordinate', 'ocean_s_coordinate_g1',
+                        'ocean_s_coordinate_g2']:
         def coord_from_term(term):
             # Convert term names to coordinates (via netCDF variable names).
             name = engine.requires['formula_terms'][term]
             for coord, cf_var_name in engine.provides['coordinates']:
                 if cf_var_name == name:
                     return coord
-            raise ValueError('Unable to find coordinate for variable '
-                             '{!r}'.format(name))
+            warnings.warn('Unable to find coordinate for variable '
+                          '{!r}'.format(name))
 
         if formula_type == 'atmosphere_hybrid_height_coordinate':
             delta = coord_from_term('a')
@@ -460,6 +484,35 @@ def _load_aux_factory(engine, cube):
             zlev = coord_from_term('zlev')
             factory = OceanSigmaZFactory(sigma, eta, depth,
                                          depth_c, nsigma, zlev)
+        elif formula_type == 'ocean_sigma_coordinate':
+            sigma = coord_from_term('sigma')
+            eta = coord_from_term('eta')
+            depth = coord_from_term('depth')
+            factory = OceanSigmaFactory(sigma, eta, depth)
+        elif formula_type == 'ocean_s_coordinate':
+            s = coord_from_term('s')
+            eta = coord_from_term('eta')
+            depth = coord_from_term('depth')
+            a = coord_from_term('a')
+            depth_c = coord_from_term('depth_c')
+            b = coord_from_term('b')
+            factory = OceanSFactory(s, eta, depth, a, b, depth_c)
+        elif formula_type == 'ocean_s_coordinate_g1':
+            s = coord_from_term('s')
+            c = coord_from_term('c')
+            eta = coord_from_term('eta')
+            depth = coord_from_term('depth')
+            depth_c = coord_from_term('depth_c')
+            factory = OceanSg1Factory(s, c, eta, depth,
+                                      depth_c)
+        elif formula_type == 'ocean_s_coordinate_g2':
+            s = coord_from_term('s')
+            c = coord_from_term('c')
+            eta = coord_from_term('eta')
+            depth = coord_from_term('depth')
+            depth_c = coord_from_term('depth_c')
+            factory = OceanSg2Factory(s, c, eta, depth,
+                                      depth_c)
         cube.add_aux_factory(factory)
 
 
@@ -499,7 +552,10 @@ def load_cubes(filenames, callback=None):
 
             # Process any associated formula terms and attach
             # the corresponding AuxCoordFactory.
-            _load_aux_factory(engine, cube)
+            try:
+                _load_aux_factory(engine, cube)
+            except ValueError as e:
+                warnings.warn('{}'.format(e))
 
             # Perform any user registered callback function.
             cube = iris.io.run_callback(callback, cube, cf_var, filename)
@@ -739,10 +795,10 @@ class Saver(object):
                 attributes = dict(attributes)
 
             for attr_name in sorted(attributes):
-                setattr(self._dataset, attr_name, attributes[attr_name])
+                self._dataset.setncattr(attr_name, attributes[attr_name])
 
         for attr_name in sorted(kwargs):
-            setattr(self._dataset, attr_name, kwargs[attr_name])
+            self._dataset.setncattr(attr_name, kwargs[attr_name])
 
     def _create_cf_dimensions(self, cube, dimension_names,
                               unlimited_dimensions=None):
@@ -1368,19 +1424,31 @@ class Saver(object):
         while cf_name in self._dataset.variables:
             cf_name = self._increment_name(cf_name)
 
-        # Determine whether there is a cube MDI value.
-        fill_value = None
-        if isinstance(cube.data, ma.core.MaskedArray):
-            fill_value = cube.data.fill_value
+        # if netcdf3 avoid streaming due to dtype handling
+        if (not cube.has_lazy_data()
+                or self._dataset.file_format in ('NETCDF3_CLASSIC',
+                                                 'NETCDF3_64BIT')):
+            # Determine whether there is a cube MDI value.
+            fill_value = None
+            if isinstance(cube.data, ma.core.MaskedArray):
+                fill_value = cube.data.fill_value
 
-        # Get the values in a form which is valid for the file format.
-        data = self._ensure_valid_dtype(cube.data, 'cube', cube)
+            # Get the values in a form which is valid for the file format.
+            data = self._ensure_valid_dtype(cube.data, 'cube', cube)
 
-        # Create the cube CF-netCDF data variable with data payload.
-        cf_var = self._dataset.createVariable(
-            cf_name, data.dtype.newbyteorder('='), dimension_names,
-            fill_value=fill_value, **kwargs)
-        cf_var[:] = data
+            # Create the cube CF-netCDF data variable with data payload.
+            cf_var = self._dataset.createVariable(
+                cf_name, data.dtype.newbyteorder('='), dimension_names,
+                fill_value=fill_value, **kwargs)
+            cf_var[:] = data
+
+        else:
+            # Create the cube CF-netCDF data variable.
+            cf_var = self._dataset.createVariable(
+                cf_name, cube.lazy_data().dtype.newbyteorder('='),
+                dimension_names, **kwargs)
+            # stream the data
+            biggus.save([cube.lazy_data()], [cf_var], masked=True)
 
         if cube.standard_name:
             cf_var.standard_name = cube.standard_name
@@ -1478,6 +1546,10 @@ def save(cube, filename, netcdf_format='NETCDF4', local_keys=None,
     * Keyword arguments specifying how to save the data are applied
       to each cube. To use different settings for different cubes, use
       the NetCDF Context manager (:class:`~Saver`) directly.
+    * The save process will stream the data payload to the file using biggus,
+      enabling large data payloads to be saved and maintaining the 'lazy'
+      status of the cube's data payload, unless the netcdf_format is explicitly
+      specified to be 'NETCDF3' or 'NETCDF3_CLASSIC'.
 
     Args:
 

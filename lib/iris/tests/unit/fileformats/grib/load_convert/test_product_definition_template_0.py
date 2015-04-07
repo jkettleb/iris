@@ -15,73 +15,93 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """
-Tests for `iris.fileformats.grib._load_convert.product_definition_template_0`.
+Test function
+:func:`iris.fileformats.grib._load_convert.product_definition_template_0`.
 
 """
+
+from __future__ import (absolute_import, division, print_function)
+
 # import iris tests first so that some things can be initialised
 # before importing anything else.
 import iris.tests as tests
 
-import datetime
-
 import mock
 
+import iris.coords
+from iris.tests.unit.fileformats.grib.load_convert import (LoadConvertTest,
+                                                           empty_metadata)
 from iris.fileformats.grib._load_convert import product_definition_template_0
 
 
-MDI = -1
-DATA_CUTOFF = 'data_cutoff'
+MDI = 0xffffffff
 
 
-class TestDataCutoff(tests.IrisTest):
-    def _check(self, hours, minutes, request_warning, expect_warning=False):
-        # Prepare the arguments
-        section = {'hoursAfterDataCutoff': hours,
-                   'minutesAfterDataCutoff': minutes,
-                   'indicatorOfUnitOfTimeRange': 0,
-                   'forecastTime': 0,
-                   'NV': 0}
-        metadata = {'attributes': {}, 'aux_coords_and_dims': []}
-        frt_point = datetime.datetime(2014, 9, 23, 14, 45)
-        # Setup the environment
-        patch_target = 'iris.fileformats.grib._load_convert.options'
-        with mock.patch(patch_target) as options:
-            options.warn_on_unsupported = request_warning
+def section_4():
+    return {'hoursAfterDataCutoff': MDI,
+            'minutesAfterDataCutoff': MDI,
+            'indicatorOfUnitOfTimeRange': 0,  # minutes
+            'forecastTime': 360,
+            'NV': 0,
+            'typeOfFirstFixedSurface': 103,
+            'scaleFactorOfFirstFixedSurface': 0,
+            'scaledValueOfFirstFixedSurface': 9999,
+            'typeOfSecondFixedSurface': 255}
+
+
+class Test(LoadConvertTest):
+    def test_given_frt(self):
+        metadata = empty_metadata()
+        rt_coord = iris.coords.DimCoord(24, 'forecast_reference_time',
+                                        units='hours since epoch')
+        product_definition_template_0(section_4(), metadata, rt_coord)
+        expected = empty_metadata()
+        aux = expected['aux_coords_and_dims']
+        aux.append((iris.coords.DimCoord(6, 'forecast_period', units='hours'),
+                    None))
+        aux.append((
+            iris.coords.DimCoord(30, 'time', units='hours since epoch'), None))
+        aux.append((rt_coord, None))
+        aux.append((iris.coords.DimCoord(9999, long_name='height', units='m'),
+                    None))
+        self.assertMetadataEqual(metadata, expected)
+
+    def test_given_t(self):
+        metadata = empty_metadata()
+        rt_coord = iris.coords.DimCoord(24, 'time',
+                                        units='hours since epoch')
+        product_definition_template_0(section_4(), metadata, rt_coord)
+        expected = empty_metadata()
+        aux = expected['aux_coords_and_dims']
+        aux.append((iris.coords.DimCoord(6, 'forecast_period', units='hours'),
+                    None))
+        aux.append((
+            iris.coords.DimCoord(18, 'forecast_reference_time',
+                                 units='hours since epoch'), None))
+        aux.append((rt_coord, None))
+        aux.append((iris.coords.DimCoord(9999, long_name='height', units='m'),
+                    None))
+        self.assertMetadataEqual(metadata, expected)
+
+    def test_generating_process_warnings(self):
+        metadata = empty_metadata()
+        rt_coord = iris.coords.DimCoord(24, 'forecast_reference_time',
+                                        units='hours since epoch')
+        convert_options = iris.fileformats.grib._load_convert.options
+        emit_warnings = convert_options.warn_on_unsupported
+        try:
+            convert_options.warn_on_unsupported = True
             with mock.patch('warnings.warn') as warn:
-                # The call being tested
-                product_definition_template_0(section, metadata, frt_point)
-        # Check the result
-        self.assertEqual(metadata['attributes'], {})
-        if expect_warning:
-            self.assertEqual(len(warn.mock_calls), 1)
-            args, kwargs = warn.call_args
-            self.assertIn('data cutoff', args[0])
-        else:
-            self.assertEqual(len(warn.mock_calls), 0)
-
-    def test_neither(self):
-        self._check(MDI, MDI, False)
-
-    def test_hours(self):
-        self._check(3, MDI, False)
-
-    def test_minutes(self):
-        self._check(MDI, 20, False)
-
-    def test_hours_and_minutes(self):
-        self._check(30, 40, False)
-
-    def test_neither_warning(self):
-        self._check(MDI, MDI, True, False)
-
-    def test_hours_warning(self):
-        self._check(3, MDI, True, True)
-
-    def test_minutes_warning(self):
-        self._check(MDI, 20, True, True)
-
-    def test_hours_and_minutes_warning(self):
-        self._check(30, 40, True, True)
+                product_definition_template_0(section_4(), metadata, rt_coord)
+            warn_msgs = [call[1][0] for call in warn.mock_calls]
+            expected = ['Unable to translate type of generating process.',
+                        'Unable to translate background generating process '
+                        'identifier.',
+                        'Unable to translate forecast generating process '
+                        'identifier.']
+            self.assertEqual(warn_msgs, expected)
+        finally:
+            convert_options.warn_on_unsupported = emit_warnings
 
 
 if __name__ == '__main__':

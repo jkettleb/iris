@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -18,6 +18,8 @@
 Miscellaneous utility functions.
 
 """
+
+from __future__ import (absolute_import, division, print_function)
 
 import abc
 import collections
@@ -280,7 +282,7 @@ def guess_coord_axis(coord):
     """
     Returns a "best guess" axis name of the coordinate.
 
-    Heuristic categoration of the coordinate into either label
+    Heuristic categorisation of the coordinate into either label
     'T', 'Z', 'Y', 'X' or None.
 
     Args:
@@ -334,7 +336,7 @@ def rolling_window(a, window=1, step=1, axis=-1):
 
     Examples::
 
-        >>> x=np.arange(10).reshape((2,5))
+        >>> x = np.arange(10).reshape((2, 5))
         >>> rolling_window(x, 3)
         array([[[0, 1, 2], [1, 2, 3], [2, 3, 4]],
                [[5, 6, 7], [6, 7, 8], [7, 8, 9]]])
@@ -355,7 +357,7 @@ def rolling_window(a, window=1, step=1, axis=-1):
     if step < 1:
         raise ValueError("`step` must be at least 1.")
     axis = axis % a.ndim
-    num_windows = (a.shape[axis] - window + step) / step
+    num_windows = (a.shape[axis] - window + step) // step
     shape = a.shape[:axis] + (num_windows, window) + a.shape[axis + 1:]
     strides = (a.strides[:axis] + (step * a.strides[axis], a.strides[axis]) +
                a.strides[axis + 1:])
@@ -428,12 +430,12 @@ def between(lh, rh, lh_inclusive=True, rh_inclusive=True):
 
         between_3_and_6 = between(3, 6)
         for i in range(10):
-           print i, between_3_and_6(i)
+           print(i, between_3_and_6(i))
 
 
         between_3_and_6 = between(3, 6, rh_inclusive=False)
         for i in range(10):
-           print i, between_3_and_6(i)
+           print(i, between_3_and_6(i))
 
     """
     if lh_inclusive and rh_inclusive:
@@ -461,7 +463,7 @@ def reverse(array, axes):
 
         >>> import numpy as np
         >>> a = np.arange(24).reshape(2, 3, 4)
-        >>> print a
+        >>> print(a)
         [[[ 0  1  2  3]
           [ 4  5  6  7]
           [ 8  9 10 11]]
@@ -469,7 +471,7 @@ def reverse(array, axes):
          [[12 13 14 15]
           [16 17 18 19]
           [20 21 22 23]]]
-        >>> print reverse(a, 1)
+        >>> print(reverse(a, 1))
         [[[ 8  9 10 11]
           [ 4  5  6  7]
           [ 0  1  2  3]]
@@ -477,7 +479,7 @@ def reverse(array, axes):
          [[20 21 22 23]
           [16 17 18 19]
           [12 13 14 15]]]
-        >>> print reverse(a, [1, 2])
+        >>> print(reverse(a, [1, 2]))
         [[[11 10  9  8]
           [ 7  6  5  4]
           [ 3  2  1  0]]
@@ -526,6 +528,7 @@ def monotonic(array, strict=False, return_direction=False):
 
         If the return_direction flag was given then the returned value
         will be:
+
             ``(monotonic_status, direction)``
 
     """
@@ -583,7 +586,7 @@ def column_slices_generator(full_slice, ndims):
     dimension_mapping = {None: None}
     _count_current_dim = 0
     for i, i_key in enumerate(full_slice):
-        if isinstance(i_key, int):
+        if isinstance(i_key, (int, np.integer)):
             dimension_mapping[i] = None
         else:
             dimension_mapping[i] = _count_current_dim
@@ -721,7 +724,7 @@ def _wrap_function_for_method(function, docstring=None):
     simple_arg_source = ', '.join(basic_args + simple_default_args +
                                   var_arg + var_kw)
     source = ('def %s(%s):\n    return function(%s)' %
-              (function.func_name, arg_source, simple_arg_source))
+              (function.__name__, arg_source, simple_arg_source))
 
     # Compile the wrapper function
     # NB. There's an outstanding bug with "exec" where the locals and globals
@@ -730,7 +733,7 @@ def _wrap_function_for_method(function, docstring=None):
     exec source in my_locals, my_locals
 
     # Update the docstring if required, and return the modified function
-    wrapper = my_locals[function.func_name]
+    wrapper = my_locals[function.__name__]
     if docstring is None:
         wrapper.__doc__ = function.__doc__
     else:
@@ -1020,9 +1023,9 @@ Example Usage::
         timers.start("big func", "output")
         output()
 
-        print timers.stop("big func")
+        print(timers.stop("big func"))
 
-        print timers.get("little func")
+        print(timers.get("little func"))
 """
 
 
@@ -1208,6 +1211,38 @@ def as_compatible_shape(src_cube, target_cube):
     return new_cube
 
 
+def squeeze(cube):
+    """
+    Removes any dimension of length one. If it has an associated DimCoord or
+    AuxCoord, this becomes a scalar coord.
+
+    Args:
+
+    * cube (:class:`iris.cube.Cube`)
+        Source cube to remove length 1 dimension(s) from.
+
+    Returns:
+        A new :class:`iris.cube.Cube` instance without any dimensions of
+        length 1.
+
+    For example::
+
+        >>> cube.shape
+        (1, 360, 360)
+        >>> ncube = iris.util.squeeze(cube)
+        >>> ncube.shape
+        (360, 360)
+
+    """
+
+    slices = [0 if cube.shape[dim] == 1 else slice(None)
+              for dim in range(cube.ndim)]
+
+    squeezed = cube[tuple(slices)]
+
+    return squeezed
+
+
 def file_is_newer_than(result_path, source_paths):
     """
     Return whether the 'result' file has a later modification time than all of
@@ -1386,3 +1421,167 @@ def _is_circular(points, modulus, bounds=None):
             # We need to decide whether this is valid!
             circular = points[0] >= modulus
     return circular
+
+
+def promote_aux_coord_to_dim_coord(cube, name_or_coord):
+    """
+    Promotes an AuxCoord on the cube to a DimCoord. This AuxCoord must be
+    associated with a single cube dimension. If the AuxCoord is associated
+    with a dimension that already has a DimCoord, that DimCoord gets
+    demoted to an AuxCoord.
+
+    Args:
+
+    * cube
+        An instance of :class:`iris.cube.Cube`
+
+    * name_or_coord:
+        Either
+
+        (a) An instance of :class:`iris.coords.AuxCoord`
+
+        or
+
+        (b) the :attr:`standard_name`, :attr:`long_name`, or
+        :attr:`var_name` of an instance of an instance of
+        :class:`iris.coords.AuxCoord`.
+
+    For example::
+
+        >>> print cube
+        air_temperature / (K)       (time: 12; latitude: 73; longitude: 96)
+             Dimension coordinates:
+                  time                    x      -              -
+                  latitude                -      x              -
+                  longitude               -      -              x
+             Auxiliary coordinates:
+                  year                    x      -              -
+        >>> promote_aux_coord_to_dim_coord(cube, 'year')
+        >>> print cube
+        air_temperature / (K)       (year: 12; latitude: 73; longitude: 96)
+             Dimension coordinates:
+                  year                    x      -              -
+                  latitude                -      x              -
+                  longitude               -      -              x
+             Auxiliary coordinates:
+                  time                    x      -              -
+
+    """
+
+    if isinstance(name_or_coord, basestring):
+        aux_coord = cube.coord(name_or_coord)
+    elif isinstance(name_or_coord, iris.coords.Coord):
+        aux_coord = name_or_coord
+    else:
+        # Don't know how to handle this type
+        msg = ("Don't know how to handle coordinate of type {}. "
+               "Ensure all coordinates are of type basestring or "
+               "iris.coords.Coord.")
+        msg = msg.format(type(name_or_coord))
+        raise TypeError(msg)
+
+    if aux_coord in cube.dim_coords:
+        # nothing to do
+        return
+
+    if aux_coord not in cube.aux_coords:
+        msg = ("Attempting to promote an AuxCoord ({}) "
+               "which does not exist in the cube.")
+        msg = msg.format(aux_coord.name())
+        raise ValueError(msg)
+
+    coord_dim = cube.coord_dims(aux_coord)
+
+    if len(coord_dim) != 1:
+        msg = ("Attempting to promote an AuxCoord ({}) "
+               "which is associated with {} dimensions.")
+        msg = msg.format(aux_coord.name(), len(coord_dim))
+        raise ValueError(msg)
+
+    try:
+        dim_coord = iris.coords.DimCoord.from_coord(aux_coord)
+    except ValueError, valerr:
+        msg = ("Attempt to promote an AuxCoord ({}) fails "
+               "when attempting to create a DimCoord from the "
+               "AuxCoord because: {}")
+        msg = msg.format(aux_coord.name(), valerr.message)
+        raise ValueError(msg)
+
+    old_dim_coord = cube.coords(dim_coords=True,
+                                contains_dimension=coord_dim[0])
+
+    if len(old_dim_coord) == 1:
+        demote_dim_coord_to_aux_coord(cube, old_dim_coord[0])
+
+    # order matters here: don't want to remove
+    # the aux_coord before have tried to make
+    # dim_coord in case that fails
+    cube.remove_coord(aux_coord)
+
+    cube.add_dim_coord(dim_coord, coord_dim)
+
+
+def demote_dim_coord_to_aux_coord(cube, name_or_coord):
+    """
+    Demotes a DimCoord on the cube to an AuxCoord, leaving that
+    dimension anonymous.
+
+    Args:
+
+    * cube
+        An instance of :class:`iris.cube.Cube`
+
+    * name_or_coord:
+        Either
+
+        (a) An instance of :class:`iris.coords.DimCoord`
+
+        or
+
+        (b) the :attr:`standard_name`, :attr:`long_name`, or
+        :attr:`var_name` of an instance of an instance of
+        :class:`iris.coords.DimCoord`.
+
+    For example::
+
+        >>> print cube
+        air_temperature / (K)       (time: 12; latitude: 73; longitude: 96)
+             Dimension coordinates:
+                  time                    x      -              -
+                  latitude                -      x              -
+                  longitude               -      -              x
+             Auxiliary coordinates:
+                  year                    x      -              -
+        >>> demote_dim_coord_to_aux_coord(cube, 'time')
+        >>> print cube
+        air_temperature / (K)        (-- : 12; latitude: 73; longitude: 96)
+             Dimension coordinates:
+                  latitude                -      x              -
+                  longitude               -      -              x
+             Auxiliary coordinates:
+                  time                    x      -              -
+                  year                    x      -              -
+
+    """
+
+    if isinstance(name_or_coord, basestring):
+        dim_coord = cube.coord(name_or_coord)
+    elif isinstance(name_or_coord, iris.coords.Coord):
+        dim_coord = name_or_coord
+    else:
+        # Don't know how to handle this type
+        msg = ("Don't know how to handle coordinate of type {}. "
+               "Ensure all coordinates are of type basestring or "
+               "iris.coords.Coord.")
+        msg = msg.format(type(name_or_coord))
+        raise TypeError(msg)
+
+    if dim_coord not in cube.dim_coords:
+        # nothing to do
+        return
+
+    coord_dim = cube.coord_dims(dim_coord)
+
+    cube.remove_coord(dim_coord)
+
+    cube.add_aux_coord(dim_coord, coord_dim)

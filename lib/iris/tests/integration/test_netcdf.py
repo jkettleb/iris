@@ -16,6 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Integration tests for loading and saving netcdf files."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
@@ -26,6 +28,7 @@ import mock
 import iris
 from iris.cube import Cube, CubeList
 from iris.fileformats.netcdf import CF_CONVENTIONS_VERSION
+from iris.fileformats.netcdf import Saver
 import iris.tests.stock as stock
 
 
@@ -155,6 +158,18 @@ class TestConventionsAttributes(tests.IrisTest):
         self.assertEqual(res.attributes['Conventions'],
                          '{}, {}, {}'.format(CF_CONVENTIONS_VERSION,
                                              'convention1', 'convention2'))
+
+
+class TestLazySave(tests.IrisTest):
+    def test_lazy_preserved_save(self):
+        fpath = tests.get_data_path(('NetCDF', 'label_and_climate',
+                                     'small_FC_167_mon_19601101.nc'))
+        acube = iris.load_cube(fpath)
+        self.assertTrue(acube.has_lazy_data())
+        with self.temp_filename('.nc') as nc_path:
+            with Saver(nc_path, 'NETCDF4') as saver:
+                saver.write(acube)
+        self.assertTrue(acube.has_lazy_data())
 
 
 if __name__ == "__main__":

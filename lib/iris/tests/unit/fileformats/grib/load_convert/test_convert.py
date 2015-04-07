@@ -16,15 +16,15 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Test function :func:`iris.fileformats.grib._load_convert.convert`."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # import iris tests first so that some things can be initialised
 # before importing anything else.
 import iris.tests as tests
 
 import mock
 
-import iris
 from iris.exceptions import TranslationError
-from iris.fileformats.grib._message import _GribMessage
 from iris.fileformats.grib._load_convert import convert
 from iris.tests.unit.fileformats.grib import _make_test_message
 
@@ -37,6 +37,7 @@ class Test(tests.IrisTest):
         factory = mock.sentinel.factory
         func = lambda field, metadata: metadata['factories'].append(factory)
         with mock.patch(this, side_effect=func) as grib2_convert:
+            # The call being tested.
             result = convert(field)
             self.assertTrue(grib2_convert.called)
             metadata = ([factory], [], None, None, None, {}, [], [], [])

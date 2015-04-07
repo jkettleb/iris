@@ -19,11 +19,12 @@ Test function :func:`iris.fileformats.grib._load_convert.scanning_mode.
 
 """
 
+from __future__ import (absolute_import, division, print_function)
+
 # import iris tests first so that some things can be initialised
 # before importing anything else.
 import iris.tests as tests
 
-import iris
 from iris.exceptions import TranslationError
 from iris.fileformats.grib._load_convert import scanning_mode, ScanningMode
 

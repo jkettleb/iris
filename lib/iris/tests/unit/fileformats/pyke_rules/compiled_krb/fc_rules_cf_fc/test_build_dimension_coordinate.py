@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -19,6 +19,8 @@ Test function :func:`iris.fileformats._pyke_rules.compiled_krb.\
 fc_rules_cf_fc.build_dimension_coordinate`.
 
 """
+
+from __future__ import (absolute_import, division, print_function)
 
 # import iris tests first so that some things can be initialised before
 # importing anything else
@@ -46,14 +48,15 @@ class RulesTestMixin(object):
         # Create patch for deferred loading that prevents attempted
         # file access. This assumes that self.cf_coord_var and
         # self.cf_bounds_var are defined in the test case.
-        def deferred_load(filename, var_name):
+        def patched__getitem__(proxy_self, keys):
             for var in (self.cf_coord_var, self.cf_bounds_var):
-                if var_name == var.cf_name:
-                    return var[:]
+                if proxy_self.variable_name == var.cf_name:
+                    return var[keys]
+            raise RuntimeError()
 
         self.deferred_load_patch = mock.patch(
-            'iris.fileformats._pyke_rules.compiled_krb.'
-            'fc_rules_cf_fc.deferred_load', new=deferred_load)
+            'iris.fileformats.netcdf.NetCDFDataProxy.__getitem__',
+            new=patched__getitem__)
 
         # Patch the helper function that retrieves the bounds cf variable.
         # This avoids the need for setting up further mocking of cf objects.

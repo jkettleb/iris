@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2013 - 2014, Met Office
+# (C) British Crown Copyright 2013 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -16,6 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for the `iris.cube.Cube` class."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
@@ -25,6 +27,7 @@ import itertools
 import biggus
 import mock
 import numpy as np
+import numpy.ma as ma
 
 import iris.aux_factory
 import iris.coords
@@ -34,7 +37,7 @@ from iris.analysis import WeightedAggregator, Aggregator
 from iris.analysis import MEAN
 from iris.cube import Cube
 from iris.coords import AuxCoord, DimCoord
-from iris.exceptions import CoordinateNotFoundError, LazyAggregatorError
+from iris.exceptions import CoordinateNotFoundError
 import iris.tests.stock as stock
 
 
@@ -321,8 +324,12 @@ class Test_aggregated_by(tests.IrisTest):
         self.cube.add_aux_coord(val_coord, 0)
         self.cube.add_aux_coord(label_coord, 0)
         self.mock_agg = mock.Mock(spec=Aggregator)
+        self.mock_agg.cell_method = []
         self.mock_agg.aggregate = mock.Mock(
             return_value=mock.Mock(dtype='object'))
+        self.mock_agg.aggregate_shape = mock.Mock(return_value=())
+        post_process_func = lambda x, y, z: x
+        self.mock_agg.post_process = mock.Mock(side_effect=post_process_func)
 
     def test_string_coord_agg_by_label(self):
         # Aggregate a cube on a string coordinate label where label
@@ -373,6 +380,8 @@ class Test_rolling_window(tests.IrisTest):
         self.mock_agg = mock.Mock(spec=Aggregator)
         self.mock_agg.aggregate = mock.Mock(
             return_value=np.empty([4]))
+        post_process_func = lambda x, y, z: x
+        self.mock_agg.post_process = mock.Mock(side_effect=post_process_func)
 
     def test_string_coord(self):
         # Rolling window on a cube that contains a string coordinate.
@@ -388,6 +397,19 @@ class Test_rolling_window(tests.IrisTest):
             long_name='month')
         self.assertEqual(res_cube.coord('val'), val_coord)
         self.assertEqual(res_cube.coord('month'), month_coord)
+
+    def test_kwargs(self):
+        # Rolling window with missing data not tolerated
+        window = 2
+        self.cube.data = np.ma.array(self.cube.data,
+                                     mask=([True, False, False,
+                                            False, True, False]))
+        res_cube = self.cube.rolling_window('val', iris.analysis.MEAN,
+                                            window, mdtol=0)
+        expected_result = np.ma.array([-99., 1.5, 2.5, -99., -99.],
+                                      mask=[True, False, False, True, True],
+                                      dtype=np.float64)
+        self.assertMaskedArrayEqual(expected_result, res_cube.data)
 
 
 class Test_slices_over(tests.IrisTest):
@@ -658,6 +680,18 @@ class Test_intersection__Lazy(tests.IrisTest):
         self.assertEqual(result.data[0, 0, -1], 10)
 
 
+class Test_intersection_Points(tests.IrisTest):
+    def test_ignore_bounds(self):
+        cube = create_cube(0, 30, bounds=True)
+        result = cube.intersection(longitude=(9.5, 12.5), ignore_bounds=True)
+        self.assertArrayEqual(result.coord('longitude').points,
+                              range(10, 13))
+        self.assertArrayEqual(result.coord('longitude').bounds[0],
+                              [9.5, 10.5])
+        self.assertArrayEqual(result.coord('longitude').bounds[-1],
+                              [11.5, 12.5])
+
+
 # Check what happens with a regional, points-only circular intersection
 # coordinate.
 class Test_intersection__RegionalSrcModulus(tests.IrisTest):
@@ -916,6 +950,27 @@ class Test_intersection__ModulusBounds(tests.IrisTest):
         self.assertEqual(result.data[0, 0, 0], 170)
         self.assertEqual(result.data[0, 0, -1], 190)
 
+    def test_misaligned_bounds(self):
+        cube = create_cube(-180, 180, bounds=True)
+        result = cube.intersection(longitude=(0, 360))
+        self.assertArrayEqual(result.coord('longitude').bounds[0],
+                              [-0.5,  0.5])
+        self.assertArrayEqual(result.coord('longitude').bounds[-1],
+                              [358.5,  359.5])
+        self.assertEqual(result.data[0, 0, 0], 180)
+        self.assertEqual(result.data[0, 0, -1], 179)
+
+    def test_misaligned_bounds_decreasing(self):
+        cube = create_cube(180, -180, bounds=True)
+        result = cube.intersection(longitude=(0, 360))
+        self.assertArrayEqual(result.coord('longitude').bounds[0],
+                              [359.5,  358.5])
+        self.assertArrayEqual(result.coord('longitude').points[-1], 0)
+        self.assertArrayEqual(result.coord('longitude').bounds[-1],
+                              [0.5, -0.5])
+        self.assertEqual(result.data[0, 0, 0], 181)
+        self.assertEqual(result.data[0, 0, -1], 180)
+
     def test_aligned_inclusive(self):
         cube = create_cube(0, 360, bounds=True)
         result = cube.intersection(longitude=(170.5, 189.5))
@@ -1076,6 +1131,66 @@ class Test_regrid(tests.IrisTest):
         scheme = FakeScheme()
         result = cube.regrid(mock.sentinel.TARGET, scheme)
         self.assertEqual(result, (scheme, cube, mock.sentinel.TARGET, cube))
+
+
+class Test_copy(tests.IrisTest):
+    def _check_copy(self, cube, cube_copy):
+        self.assertIsNot(cube_copy, cube)
+        self.assertEqual(cube_copy, cube)
+        self.assertIsNot(cube_copy.data, cube.data)
+        if isinstance(cube.data, np.ma.MaskedArray):
+            self.assertMaskedArrayEqual(cube_copy.data, cube.data)
+            if cube.data.mask is not ma.nomask:
+                # "No mask" is a constant : all other cases must be distinct.
+                self.assertIsNot(cube_copy.data.mask, cube.data.mask)
+        else:
+            self.assertArrayEqual(cube_copy.data, cube.data)
+
+    def test(self):
+        cube = stock.simple_3d()
+        self._check_copy(cube, cube.copy())
+
+    def test__masked_emptymask(self):
+        cube = Cube(np.ma.array([0, 1]))
+        self._check_copy(cube, cube.copy())
+
+    def test__masked_arraymask(self):
+        cube = Cube(np.ma.array([0, 1], mask=[True, False]))
+        self._check_copy(cube, cube.copy())
+
+    def test__scalar(self):
+        cube = Cube(0)
+        self._check_copy(cube, cube.copy())
+
+    def test__masked_scalar_emptymask(self):
+        cube = Cube(np.ma.array(0))
+        self._check_copy(cube, cube.copy())
+
+    def test__masked_scalar_arraymask(self):
+        cube = Cube(np.ma.array(0, mask=False))
+        self._check_copy(cube, cube.copy())
+
+    def test__lazy(self):
+        cube = Cube(biggus.NumpyArrayAdapter(np.array([1, 0])))
+        self._check_copy(cube, cube.copy())
+
+
+class Test_dtype(tests.IrisTest):
+    def test_int8(self):
+        cube = Cube(np.array([0, 1], dtype=np.int8))
+        self.assertEqual(cube.dtype, np.int8)
+
+    def test_float32(self):
+        cube = Cube(np.array([0, 1], dtype=np.float32))
+        self.assertEqual(cube.dtype, np.float32)
+
+    def test_lazy(self):
+        data = np.arange(6, dtype=np.float32).reshape(2, 3)
+        lazydata = biggus.NumpyArrayAdapter(data)
+        cube = Cube(lazydata)
+        self.assertEqual(cube.dtype, np.float32)
+        # Check that accessing the dtype does not trigger loading of the data.
+        self.assertTrue(cube.has_lazy_data())
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import (absolute_import, division, print_function)
 
 from sphinx.ext.autodoc import DataDocumenter, ModuleLevelDocumenter
 from sphinx.util.inspect import safe_repr
@@ -37,8 +38,9 @@ class IrisDataDocumenter(DataDocumenter):
         elif self.options.annotation is object():
             pass
         else:
-            self.add_line(u'   :annotation: %s' % self.options.annotation,
-                          '<autodoc>')
+            self.add_line(
+                u'   :annotation: {}'.format(self.options.annotation),
+                '<autodoc>')
 
 
 def handler(app, what, name, obj, options, signature, return_annotation):

@@ -16,6 +16,8 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 """Integration tests for loading and saving PP files."""
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
@@ -455,7 +457,7 @@ class TestCoordinateForms(tests.IrisTest):
         with self.temp_filename('.pp') as pp_filepath:
             iris.save(test_cube, pp_filepath)
             pp_loader = iris.fileformats.pp.load(pp_filepath)
-            pp_field = pp_loader.next()
+            pp_field = next(pp_loader)
         return pp_field
 
     def test_save_awkward_case_is_regular(self):

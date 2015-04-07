@@ -20,6 +20,8 @@ function.
 
 """
 
+from __future__ import (absolute_import, division, print_function)
+
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
 import iris.tests as tests
@@ -46,7 +48,7 @@ class Test(tests.IrisTest):
     def test_unhandled(self):
         with mock.patch('warnings.warn') as warn:
             self._call_tm_meridian_scaling(1)
-        warn.assert_called_once()
+        self.assertEqual(warn.call_count, 1)
 
     @tests.no_warnings
     def test_british_national_grid(self):
