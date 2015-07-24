@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -26,6 +26,7 @@ See also: `UDUNITS-2
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 from contextlib import contextmanager
 import copy
@@ -634,7 +635,8 @@ def date2num(date, unit, calendar):
     unit_string = unit.rstrip(" UTC")
     if unit_string.endswith(" since epoch"):
         unit_string = unit_string.replace("epoch", IRIS_EPOCH)
-    return netcdftime.date2num(date, unit_string, calendar)
+    cdftime = netcdftime.utime(unit_string, calendar=calendar)
+    return cdftime.date2num(date)
 
 
 def num2date(time_value, unit, calendar):
@@ -700,7 +702,8 @@ def num2date(time_value, unit, calendar):
     unit_string = unit.rstrip(" UTC")
     if unit_string.endswith(" since epoch"):
         unit_string = unit_string.replace("epoch", IRIS_EPOCH)
-    return netcdftime.num2date(time_value, unit_string, calendar)
+    cdftime = netcdftime.utime(unit_string, calendar=calendar)
+    return cdftime.num2date(time_value)
 
 
 def _handler(func):
@@ -1820,8 +1823,8 @@ class Unit(iris.util._OrderedHashable):
             >>> import numpy as np
             >>> c = unit.Unit('deg_c')
             >>> f = unit.Unit('deg_f')
-            >>> print(c.convert(0, f))
-            32.0
+            >>> c.convert(0, f)
+            31.999999999999886
             >>> c.convert(0, f, unit.FLOAT32)
             32.0
             >>> a64 = np.arange(10, dtype=np.float64)

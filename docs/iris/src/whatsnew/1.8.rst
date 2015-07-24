@@ -1,8 +1,8 @@
 What's new in Iris 1.8
 **********************
 
-:Release: 1.8.0
-:Date: ???
+:Release: 1.8.1rc1
+:Date: 21st May 2015
 
 This document explains the new/changed features of Iris in version 1.8.
 (:doc:`View all changes <index>`.)
@@ -50,13 +50,13 @@ Iris 1.8 features
     To demonstrate this::
 
         >>> cube = iris.load(iris.sample_data_path('colpex.pp'))[0]
-        >>> print cube.summary(shorten=True)
+        >>> print(cube.summary(shorten=True))
         air_potential_temperature / (K)     (time: 6; model_level_number: 10; grid_latitude: 83; grid_longitude: 83)
         >>> my_slice = next(cube.slices('time'))
         >>> my_slice_over = next(cube.slices_over('time'))
-        >>> print my_slice.summary(shorten=True)
+        >>> print(my_slice.summary(shorten=True))
         air_potential_temperature / (K)     (time: 6)
-        >>> print my_slice_over.summary(shorten=True)
+        >>> print(my_slice_over.summary(shorten=True))
         air_potential_temperature / (K)     (model_level_number: 10; grid_latitude: 83; grid_longitude: 83)
     
 
@@ -111,9 +111,15 @@ Iris 1.8 features
   :func:`iris.analysis.maths.apply_ufunc`.
 * Generic functions can be applied to :class:`~iris.cube.Cube` instances using 
   :class:`iris.analysis.maths.IFunc`. 
+* The :class:`iris.analysis.Linear` scheme now supports regridding as well as interpolation.
+  This enables :meth:`iris.cube.Cube.regrid` to perform bilinear regridding, which now
+  replaces the experimental routine "iris.experimental.regrid.regrid_bilinear_rectilinear_src_and_grid".
 
 Bugs fixed
 ==========
+
+1.8.0
+------
 * Fix in netCDF loader to correctly determine whether the longitude coordinate
   (including scalar coordinates) is circular.
 * :meth:`iris.cube.Cube.intersection` now supports bounds that extend slightly beyond 360
@@ -130,10 +136,28 @@ Bugs fixed
 * GRIB1 loader now creates a time coordinate for a time range indicator of 2.
 * NetCDF loader now loads units that are empty strings as dimensionless.
 
+1.8.1
+------
+* The PP loader now carefully handles floating point errors in date time conversions to hours.
+* The handling fill values for lazy data loaded from NetCDF files is altered, such that the 
+  _FillValue set in the file is preserved through lazy operations.
+* The risk that cube intersections could return incorrect results due to floating point
+  tolerances is reduced.
+* The new GRIB2 loading code is altered to enable the loading of various data representation
+  templates; the data value unpacking is handled by the GRIB API.
+* Saving cube collections to NetCDF, where multiple similar aux-factories exist within the cubes, 
+  is now carefully handled such that extra file variables are created where required in some cases.
+
 Deprecations
 ============
 * The original GRIB loader has been deprecated and replaced with a new
   template-based GRIB loader.
+* Deprecated default NetCDF save behaviour of assigning the outermost
+  dimension to be unlimited.  Switch to the new behaviour with no auto
+  assignment by setting :data:`iris.FUTURE.netcdf_no_unlimited` to True.
+* The former experimental method
+  "iris.experimental.regrid.regrid_bilinear_rectilinear_src_and_grid" has been removed, as
+  :class:`iris.analysis.Linear` now includes this functionality.
 
 Documentation Changes
 =====================

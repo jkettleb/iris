@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the :mod:`iris.plot` module."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -44,7 +45,7 @@ class TestGraphicStringCoord(tests.GraphicsTest):
         axis = getattr(plt.gca(), axis_name)
         locations = axis.get_majorticklocs()
         labels = [tick.get_text() for tick in axis.get_ticklabels()]
-        return zip(locations, labels)
+        return list(zip(locations, labels))
 
     def assertBoundsTickLabels(self, axis):
         actual = self.tick_loc_and_label(axis)

@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the `iris.fileformats.netcdf.save` function."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -25,8 +26,10 @@ import iris.tests as tests
 import netCDF4 as nc
 import numpy as np
 
+import iris
 from iris.cube import Cube
 from iris.fileformats.netcdf import save, CF_CONVENTIONS_VERSION
+from iris.tests.stock import lat_lon_cube
 
 
 class Test_attributes(tests.IrisTest):
@@ -55,6 +58,24 @@ class Test_attributes(tests.IrisTest):
             res = ds.getncattr('bar')
             ds.close()
         self.assertArrayEqual(res, np.arange(2))
+
+
+class Test_unlimited_dims(tests.IrisTest):
+    def test_no_unlimited_default(self):
+        cube = lat_lon_cube()
+        with iris.FUTURE.context(netcdf_no_unlimited=False):
+            with self.temp_filename('foo.nc') as nc_out:
+                save(cube, nc_out)
+                ds = nc.Dataset(nc_out)
+                self.assertTrue(ds.dimensions['latitude'].isunlimited())
+
+    def test_no_unlimited_future_default(self):
+        cube = lat_lon_cube()
+        with iris.FUTURE.context(netcdf_no_unlimited=True):
+            with self.temp_filename('foo.nc') as nc_out:
+                save(cube, nc_out)
+                ds = nc.Dataset(nc_out)
+                self.assertFalse(ds.dimensions['latitude'].isunlimited())
 
 
 if __name__ == "__main__":

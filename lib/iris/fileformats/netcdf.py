@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -25,9 +25,9 @@ Version 1.4, 27 February 2009.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import collections
-import itertools
 import os
 import os.path
 import string
@@ -68,6 +68,9 @@ SPATIO_TEMPORAL_AXES = ['t', 'z', 'y', 'x']
 # Pass through CF attributes:
 #  - comment
 #  - Conventions
+#  - flag_masks
+#  - flag_meanings
+#  - flag_values
 #  - history
 #  - institution
 #  - reference
@@ -77,10 +80,9 @@ SPATIO_TEMPORAL_AXES = ['t', 'z', 'y', 'x']
 #
 _CF_ATTRS = ['add_offset', 'ancillary_variables', 'axis', 'bounds', 'calendar',
              'cell_measures', 'cell_methods', 'climatology', 'compress',
-             'coordinates', '_FillValue', 'flag_masks', 'flag_meanings',
-             'flag_values', 'formula_terms', 'grid_mapping', 'leap_month',
-             'leap_year', 'long_name', 'missing_value', 'month_lengths',
-             'scale_factor', 'standard_error_multiplier',
+             'coordinates', '_FillValue', 'formula_terms', 'grid_mapping',
+             'leap_month', 'leap_year', 'long_name', 'missing_value',
+             'month_lengths', 'scale_factor', 'standard_error_multiplier',
              'standard_name', 'units', 'valid_max', 'valid_min', 'valid_range']
 
 # CF attributes that should not be global.
@@ -403,12 +405,12 @@ def _load_cube(engine, cf, cf_var, filename):
     attribute_predicate = lambda item: item[0] not in _CF_ATTRS
 
     for coord, cf_var_name in coordinates:
-        tmpvar = itertools.ifilter(attribute_predicate,
-                                   cf.cf_group[cf_var_name].cf_attrs_unused())
+        tmpvar = filter(attribute_predicate,
+                        cf.cf_group[cf_var_name].cf_attrs_unused())
         for attr_name, attr_value in tmpvar:
             _set_attributes(coord.attributes, attr_name, attr_value)
 
-    tmpvar = itertools.ifilter(attribute_predicate, cf_var.cf_attrs_unused())
+    tmpvar = filter(attribute_predicate, cf_var.cf_attrs_unused())
     # Attach untouched attributes of the associated CF-netCDF data variable to
     # the cube.
     for attr_name, attr_value in tmpvar:
@@ -609,6 +611,8 @@ class Saver(object):
         self._coord_systems = []
         #: A dictionary, listing dimension names and corresponding length
         self._existing_dim = {}
+        #: A dictionary, mapping formula terms to owner cf variable name
+        self._formula_terms_cache = {}
         #: NetCDF dataset
         try:
             self._dataset = netCDF4.Dataset(filename, mode='w',
@@ -724,7 +728,20 @@ class Saver(object):
             `chunksizes` and `endian` keywords are silently ignored for netCDF
             3 files that do not use HDF5.
 
+        .. deprecated:: 1.8.0
+
+            NetCDF default saving behaviour currently assigns the outermost
+            dimension as unlimited. This behaviour is to be deprecated, in
+            favour of no automatic assignment. To switch to the new behaviour,
+            set `iris.FUTURE.netcdf_no_unlimited` to True.
+
         """
+        if unlimited_dimensions is None:
+            if iris.FUTURE.netcdf_no_unlimited:
+                unlimited_dimensions = []
+            else:
+                _no_unlim_dep_warning()
+
         cf_profile_available = (iris.site_configuration.get('cf_profile') not
                                 in [None, False])
         if cf_profile_available:
@@ -754,7 +771,7 @@ class Saver(object):
 
         # Add the formula terms to the appropriate cf variables for each
         # aux factory in the cube.
-        self._add_aux_factories(cube)
+        self._add_aux_factories(cube, cf_var_cube, dimension_names)
 
         # Add data variable-only attribute names to local_keys.
         if local_keys is None:
@@ -822,7 +839,8 @@ class Saver(object):
 
         """
         unlimited_dim_names = []
-        if unlimited_dimensions is None:
+        if (unlimited_dimensions is None and
+                not iris.FUTURE.netcdf_no_unlimited):
             if dimension_names:
                 unlimited_dim_names.append(dimension_names[0])
         else:
@@ -899,7 +917,7 @@ class Saver(object):
                                                    coord)
                 self._name_coord_map.append(cf_name, coord)
 
-    def _add_aux_factories(self, cube):
+    def _add_aux_factories(self, cube, cf_var_cube, dimension_names):
         """
         Modifies the variables of the NetCDF dataset to represent
         the presence of dimensionless vertical coordinates based on
@@ -909,6 +927,10 @@ class Saver(object):
 
         * cube (:class:`iris.cube.Cube`):
             A :class:`iris.cube.Cube` to be saved to a netCDF file.
+        * cf_var_cube (:class:`netcdf.netcdf_variable`)
+            CF variable cube representation.
+        * dimension_names (list):
+            Names associated with the dimensions of the cube.
 
         """
         primaries = []
@@ -930,15 +952,53 @@ class Saver(object):
                           'single coordinate is not supported.'
                     raise ValueError(msg.format(cube, primary_coord.name()))
                 primaries.append(primary_coord)
+
                 cf_name = self._name_coord_map.name(primary_coord)
                 cf_var = self._dataset.variables[cf_name]
-                cf_var.standard_name = factory_defn.std_name
-                cf_var.axis = 'Z'
+
                 names = {key: self._name_coord_map.name(coord) for
                          key, coord in factory.dependencies.iteritems()}
                 formula_terms = factory_defn.formula_terms_format.format(
                     **names)
-                cf_var.formula_terms = formula_terms
+                std_name = factory_defn.std_name
+
+                if hasattr(cf_var, 'formula_terms'):
+                    if cf_var.formula_terms != formula_terms or \
+                            cf_var.standard_name != std_name:
+                        # TODO: We need to resolve this corner-case where
+                        # the dimensionless vertical coordinate containing the
+                        # formula_terms is a dimension coordinate of the
+                        # associated cube and a new alternatively named
+                        # dimensionless vertical coordinate is required with
+                        # new formula_terms and a renamed dimension.
+                        if cf_name in dimension_names:
+                            msg = 'Unable to create dimensonless vertical ' \
+                                'coordinate.'
+                            raise ValueError(msg)
+                        key = (cf_name, std_name, formula_terms)
+                        name = self._formula_terms_cache.get(key)
+                        if name is None:
+                            # Create a new variable
+                            name = self._create_cf_variable(cube,
+                                                            dimension_names,
+                                                            primary_coord)
+                            cf_var = self._dataset.variables[name]
+                            cf_var.standard_name = std_name
+                            cf_var.axis = 'Z'
+                            # Update the formula terms.
+                            ft = formula_terms.split()
+                            ft = [name if t == cf_name else t for t in ft]
+                            cf_var.formula_terms = ' '.join(ft)
+                            # Update the cache.
+                            self._formula_terms_cache[key] = name
+                        # Update the associated cube variable.
+                        coords = cf_var_cube.coordinates.split()
+                        coords = [name if c == cf_name else c for c in coords]
+                        cf_var_cube.coordinates = ' '.join(coords)
+                else:
+                    cf_var.standard_name = std_name
+                    cf_var.axis = 'Z'
+                    cf_var.formula_terms = formula_terms
 
     def _get_dim_names(self, cube):
         """
@@ -955,7 +1015,7 @@ class Saver(object):
 
         """
         dimension_names = []
-        for dim in xrange(cube.ndim):
+        for dim in range(cube.ndim):
             coords = cube.coords(dimensions=dim, dim_coords=True)
             if coords:
                 coord = coords[0]
@@ -1444,9 +1504,12 @@ class Saver(object):
 
         else:
             # Create the cube CF-netCDF data variable.
+            # Explicitly assign the fill_value, which will be the type default
+            # in the case of an unmasked array.
             cf_var = self._dataset.createVariable(
                 cf_name, cube.lazy_data().dtype.newbyteorder('='),
-                dimension_names, **kwargs)
+                dimension_names, fill_value=cube.lazy_data().fill_value,
+                **kwargs)
             # stream the data
             biggus.save([cube.lazy_data()], [cf_var], masked=True)
 
@@ -1645,7 +1708,20 @@ def save(cube, filename, netcdf_format='NETCDF4', local_keys=None,
 
         NetCDF Context manager (:class:`~Saver`).
 
+    .. deprecated:: 1.8.0
+
+        NetCDF default saving behaviour currently assigns the outermost
+        dimensions to unlimited. This behaviour is to be deprecated, in
+        favour of no automatic assignment. To switch to the new behaviour,
+        set `iris.FUTURE.netcdf_no_unlimited` to True.
+
     """
+    if unlimited_dimensions is None:
+        if iris.FUTURE.netcdf_no_unlimited:
+            unlimited_dimensions = []
+        else:
+            _no_unlim_dep_warning()
+
     if isinstance(cube, iris.cube.Cube):
         cubes = iris.cube.CubeList()
         cubes.append(cube)
@@ -1698,3 +1774,12 @@ def save(cube, filename, netcdf_format='NETCDF4', local_keys=None,
 
         # Add conventions attribute.
         sman.update_global_attributes(Conventions=conventions)
+
+
+def _no_unlim_dep_warning():
+    msg = ('NetCDF default saving behaviour currently assigns the '
+           'outermost dimensions to unlimited. This behaviour is to be '
+           'deprecated, in favour of no automatic assignment. To switch '
+           'to the new behaviour, set iris.FUTURE.netcdf_no_unlimited to '
+           'True.')
+    warnings.warn(msg)

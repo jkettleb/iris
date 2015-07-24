@@ -20,6 +20,7 @@ Test CF-NetCDF file loading and saving.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris tests first so that some things can be initialised before
 # importing anything else.
@@ -864,7 +865,7 @@ class TestNetCDFUKmoProcessFlags(tests.IrisTest):
                     len(cube.attributes["ukmo__process_flags"]) == 1,
                     "Mismatch in number of process flags.")
                 process_flag = cube.attributes["ukmo__process_flags"][0]
-                self.assertEquals(process_flag, process_desc)
+                self.assertEqual(process_flag, process_desc)
 
         # Test mutiple process flags
         multiple_bit_values = ((128, 64), (4096, 1024), (8192, 1024))
@@ -889,7 +890,7 @@ class TestNetCDFUKmoProcessFlags(tests.IrisTest):
                 process_flags = cube.attributes["ukmo__process_flags"]
                 self.assertTrue(len(process_flags) == len(bits), 'Mismatch in '
                                 'number of process flags.')
-                self.assertEquals(set(process_flags), set(descriptions))
+                self.assertEqual(set(process_flags), set(descriptions))
 
 
 if __name__ == "__main__":

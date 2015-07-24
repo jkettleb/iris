@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -20,6 +20,7 @@ Test cube indexing, slicing, and extracting, and also the dot graphs.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # import iris tests first so that some things can be initialised before importing anything else
 import iris.tests as tests
@@ -338,9 +339,13 @@ class TestCubeStringRepresentations(IrisDotTest):
     def test_cube_summary_alignment(self):
         # Test the cube summary dimension alignment and coord name clipping
         cube = iris.tests.stock.simple_1d()
-        aux = iris.coords.AuxCoord(range(11), long_name='This is a really, really, really long long_name that requires to be clipped because it is too long')
+        aux = iris.coords.AuxCoord(
+            np.arange(11),
+            long_name='This is a really, really, really, really long '
+                      'long_name that must be clipped because it is too long')
         cube.add_aux_coord(aux, 0)
-        aux = iris.coords.AuxCoord(range(11), long_name='This is a short long_name')
+        aux = iris.coords.AuxCoord(np.arange(11),
+                                   long_name='This is a short long_name')
         cube.add_aux_coord(aux, 0)
         self.assertString(str(cube), ('cdm', 'str_repr', 'simple.__str__.txt'))
 
@@ -1148,22 +1153,24 @@ class TestConversionToCoordList(tests.IrisTest):
         cube = iris.tests.stock.realistic_4d()
         
         # Single string
-        self.assertEquals(len(cube._as_list_of_coords('grid_longitude')), 1)
+        self.assertEqual(len(cube._as_list_of_coords('grid_longitude')), 1)
         
         # List of string and unicode
-        self.assertEquals(len(cube._as_list_of_coords(['grid_longitude', u'grid_latitude'], )), 2)
+        self.assertEqual(len(cube._as_list_of_coords(['grid_longitude',
+                                                      u'grid_latitude'], )), 2)
         
         # Coord object(s)
         lat = cube.coords("grid_latitude")[0]
         lon = cube.coords("grid_longitude")[0]
-        self.assertEquals(len(cube._as_list_of_coords(lat)), 1)
-        self.assertEquals(len(cube._as_list_of_coords([lat, lon])), 2)
+        self.assertEqual(len(cube._as_list_of_coords(lat)), 1)
+        self.assertEqual(len(cube._as_list_of_coords([lat, lon])), 2)
         
         # Mix of string-like and coord
-        self.assertEquals(len(cube._as_list_of_coords(["grid_latitude", lon])), 2)
+        self.assertEqual(len(cube._as_list_of_coords(['grid_latitude', lon])),
+                         2)
 
         # Empty list
-        self.assertEquals(len(cube._as_list_of_coords([])), 0)
+        self.assertEqual(len(cube._as_list_of_coords([])), 0)
         
         # Invalid coords
         invalid_choices = [iris.analysis.MEAN, # Caused by mixing up argument order in call to cube.collasped for example

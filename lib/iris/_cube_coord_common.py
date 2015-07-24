@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -16,6 +16,7 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # TODO: Is this a mixin or a base class?
 
@@ -66,11 +67,11 @@ class LimitedAttributeDict(dict):
         # Gather incoming keys
         keys = []
         if hasattr(other, "keys"):
-            keys += other.keys()
+            keys += list(other.keys())
         else:
             keys += [k for k, v in other]
 
-        keys += kwargs.keys()
+        keys += list(kwargs.keys())
 
         # Check validity of keys
         for key in keys:

@@ -17,6 +17,7 @@
 """Integration tests for loading and saving GRIB2 files."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -214,6 +215,16 @@ class TestGDT5(tests.IrisTest):
 
 
 @tests.skip_data
+class TestGDT30(tests.IrisTest):
+
+    def test_lambert(self):
+        path = tests.get_data_path(('GRIB', 'lambert', 'lambert.grib2'))
+        with FUTURE.context(strict_grib_load=True):
+            cube = load_cube(path)
+        self.assertCMLApproxData(cube)
+
+
+@tests.skip_data
 class TestGDT40(tests.IrisTest):
 
     def test_regular(self):
@@ -224,6 +235,17 @@ class TestGDT40(tests.IrisTest):
 
     def test_reduced(self):
         path = tests.get_data_path(('GRIB', 'reduced', 'reduced_gg.grib2'))
+        with FUTURE.context(strict_grib_load=True):
+            cube = load_cube(path)
+        self.assertCMLApproxData(cube)
+
+
+@tests.skip_data
+class TestDRT3(tests.IrisTest):
+
+    def test_grid_complex_spatial_differencing(self):
+        path = tests.get_data_path(('GRIB', 'missing_values',
+                                    'missing_values.grib2'))
         with FUTURE.context(strict_grib_load=True):
             cube = load_cube(path)
         self.assertCMLApproxData(cube)

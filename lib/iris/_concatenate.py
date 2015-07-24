@@ -20,6 +20,7 @@ Automatic concatenation of multiple cubes over one or more existing dimensions.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 from collections import defaultdict, namedtuple
 
@@ -372,9 +373,9 @@ class _CubeSignature(object):
         # Set up {name: coord_metadata} dictionaries.
         self_dict = {x.name(): x for x in getattr(self, attr)}
         other_dict = {x.name(): x for x in getattr(other, attr)}
-        if len(self_dict.keys()) == 0:
+        if len(self_dict) == 0:
             self_dict = {'< None >': None}
-        if len(other_dict.keys()) == 0:
+        if len(other_dict) == 0:
             other_dict = {'< None >': None}
         self_names = sorted(self_dict.keys())
         other_names = sorted(other_dict.keys())

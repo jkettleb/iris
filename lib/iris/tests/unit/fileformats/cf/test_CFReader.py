@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -20,6 +20,7 @@ Unit tests for the `iris.fileformats.cf.CFReader` class.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -129,7 +130,7 @@ class Test_translate__formula_terms(tests.IrisTest):
             # Check there is a singular data variable.
             group = cf_group.data_variables
             self.assertEqual(len(group), 1)
-            self.assertEqual(group.keys(), ['temp'])
+            self.assertEqual(list(group.keys()), ['temp'])
             self.assertIs(group['temp'].cf_data, self.temp)
             # Check there are three coordinates.
             group = cf_group.coordinates
@@ -234,7 +235,8 @@ class Test_build_cf_groups__formula_terms(tests.IrisTest):
                 self.assertIs(group[name].cf_data, getattr(self, name))
             # Check all the auxiliary coordinates are formula terms.
             formula_terms = cf_group.formula_terms
-            self.assertTrue(set(formula_terms.items()).issubset(group.items()))
+            self.assertTrue(
+                set(formula_terms.items()).issubset(list(group.items())))
             # Check the terms by root.
             for name, term in zip(aux_coordinates, ['a', 'b', 'orog']):
                 self.assertEqual(formula_terms[name].cf_terms_by_root,
@@ -255,10 +257,10 @@ class Test_build_cf_groups__formula_terms(tests.IrisTest):
             self.assertEqual(len(cf_group), len(self.variables))
             # Check the number of data variables.
             self.assertEqual(len(cf_group.data_variables), 1)
-            self.assertEqual(cf_group.data_variables.keys(), ['temp'])
+            self.assertEqual(list(cf_group.data_variables.keys()), ['temp'])
             # Check the number of promoted variables.
             self.assertEqual(len(cf_group.promoted), 1)
-            self.assertEqual(cf_group.promoted.keys(), ['orography'])
+            self.assertEqual(list(cf_group.promoted.keys()), ['orography'])
             # Check the promoted variable dependencies.
             group = cf_group.promoted['orography'].cf_group.coordinates
             self.assertEqual(len(group), 2)
@@ -276,7 +278,7 @@ class Test_build_cf_groups__formula_terms(tests.IrisTest):
                 cf_group = CFReader('dummy').cf_group
                 if state:
                     group = cf_group.promoted
-                    self.assertEqual(group.keys(), ['orography'])
+                    self.assertEqual(list(group.keys()), ['orography'])
                     self.assertIs(group['orography'].cf_data, self.orography)
                 else:
                     self.assertEqual(len(cf_group.promoted), 0)

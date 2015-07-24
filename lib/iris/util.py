@@ -20,10 +20,12 @@ Miscellaneous utility functions.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import abc
 import collections
 import copy
+import functools
 import inspect
 import os
 import os.path
@@ -601,7 +603,7 @@ def column_slices_generator(full_slice, ndims):
 
     # stg1: Take a copy of the full_slice specification, turning all tuples
     # into a full slice
-    if tuple_indices != range(len(full_slice)):
+    if tuple_indices != list(range(len(full_slice))):
         first_slice = list(full_slice)
         for tuple_index in tuple_indices:
             first_slice[tuple_index] = slice(None, None)
@@ -730,7 +732,7 @@ def _wrap_function_for_method(function, docstring=None):
     # NB. There's an outstanding bug with "exec" where the locals and globals
     # dictionaries must be the same if we're to get closure behaviour.
     my_locals = {'function': function}
-    exec source in my_locals, my_locals
+    exec(source, my_locals, my_locals)
 
     # Update the docstring if required, and return the modified function
     wrapper = my_locals[function.__name__]
@@ -768,7 +770,7 @@ class _MetaOrderedHashable(abc.ABCMeta):
                 # Create a default __init__ method for the class
                 method_source = ('def __init__(self, %s):\n '
                                  'self._init_from_tuple((%s,))' % (args, args))
-                exec method_source in namespace
+                exec(method_source, namespace)
 
             # Ensure the class has a "helper constructor" with explicit
             # arguments.
@@ -776,12 +778,13 @@ class _MetaOrderedHashable(abc.ABCMeta):
                 # Create a default _init method for the class
                 method_source = ('def _init(self, %s):\n '
                                  'self._init_from_tuple((%s,))' % (args, args))
-                exec method_source in namespace
+                exec(method_source, namespace)
 
         return super(_MetaOrderedHashable, cls).__new__(
             cls, name, bases, namespace)
 
 
+@functools.total_ordering
 class _OrderedHashable(collections.Hashable):
     """
     Convenience class for creating "immutable", hashable, and ordered classes.
@@ -855,12 +858,11 @@ class _OrderedHashable(collections.Hashable):
 
     # Provide default ordering semantics
 
-    def __cmp__(self, other):
+    def __lt__(self, other):
         if isinstance(other, _OrderedHashable):
-            result = cmp(self._identity(), other._identity())
+            return self._identity() < other._identity()
         else:
-            result = NotImplemented
-        return result
+            return NotImplemented
 
 
 def create_temp_filename(suffix=''):
@@ -1500,7 +1502,7 @@ def promote_aux_coord_to_dim_coord(cube, name_or_coord):
 
     try:
         dim_coord = iris.coords.DimCoord.from_coord(aux_coord)
-    except ValueError, valerr:
+    except ValueError as valerr:
         msg = ("Attempt to promote an AuxCoord ({}) fails "
                "when attempting to create a DimCoord from the "
                "AuxCoord because: {}")

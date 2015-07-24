@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -20,6 +20,7 @@ Provides UK Met Office Post Process (PP) format specific capabilities.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import abc
 import collections
@@ -41,8 +42,16 @@ import iris.fileformats.rules
 import iris.unit
 import iris.fileformats.pp_rules
 import iris.coord_systems
-import iris.proxy
-iris.proxy.apply_proxy('iris.fileformats.pp_packing', globals())
+
+try:
+    import mo_pack
+except ImportError:
+    mo_pack = None
+
+try:
+    from iris.fileformats import pp_packing
+except ImportError:
+    pp_packing = None
 
 
 __all__ = ['load', 'save', 'load_cubes', 'PPField',
@@ -462,7 +471,7 @@ class SplittableInt(object):
 
     def __setattr__(self, name, value):
         # if the attribute is a special value, update the index value which will in turn update the attribute value
-        if (name != '_name_lookup' and name in self._name_lookup.keys()):
+        if name != '_name_lookup' and name in self._name_lookup:
             self[self._name_lookup[name]] = value
         else:
             object.__setattr__(self, name, value)
@@ -650,7 +659,7 @@ class _FlagMetaclass(type):
     NUM_BITS = 18
 
     def __new__(cls, classname, bases, class_dict):
-        for i in xrange(cls.NUM_BITS):
+        for i in range(cls.NUM_BITS):
             value = 2 ** i
             name = 'flag{}'.format(value)
             class_dict[name] = property(_make_flag_getter(value),
@@ -672,10 +681,11 @@ class _LBProc(BitwiseInt):
             The initial value which will determine the flags.
 
         """
+        value = int(value)
         if value < 0:
             raise ValueError('Negative numbers not supported with '
                              'splittable integers object')
-        self._value = int(value)
+        self._value = value
 
     def __len__(self):
         """
@@ -786,7 +796,7 @@ class _LBProc(BitwiseInt):
     def flags(self):
         warnings.warn('The `flags` attribute is deprecated - please use '
                       'integer bitwise operators instead.')
-        return tuple(2 ** i for i in xrange(self.NUM_BITS)
+        return tuple(2 ** i for i in range(self.NUM_BITS)
                      if self._value & 2 ** i)
 
 
@@ -888,10 +898,24 @@ def _data_bytes_to_shaped_array(data_bytes, lbpack, boundary_packing,
     if lbpack.n1 in (0, 2):
         data = np.frombuffer(data_bytes, dtype=data_type)
     elif lbpack.n1 == 1:
-        data = pp_packing.wgdos_unpack(data_bytes, data_shape[0],
-                                       data_shape[1], mdi)
+        if mo_pack is not None:
+            data = mo_pack.unpack_wgdos(data_bytes,
+                                        data_shape[0], data_shape[1], mdi)
+        elif pp_packing is not None:
+            msg = 'iris.fileformats.pp_packing.wgdos_unpack has been ' \
+                  'deprecated and will be removed in a future release. ' \
+                  'Install mo_pack to make use of the new unpacking ' \
+                  'functionality.'
+            warnings.warn(msg)
+            data = pp_packing.wgdos_unpack(data_bytes,
+                                           data_shape[0], data_shape[1], mdi)
+        else:
+            msg = 'Unpacking PP fields with LBPACK of {} ' \
+                  'requires mo_pack to be installed'.format(lbpack.n1)
+            raise ValueError(msg)
     elif lbpack.n1 == 4:
-        data = pp_packing.rle_decode(data_bytes, data_shape[0], data_shape[1], mdi)
+        data = pp_packing.rle_decode(data_bytes,
+                                     data_shape[0], data_shape[1], mdi)
     else:
         raise iris.exceptions.NotYetImplementedError(
                 'PP fields with LBPACK of %s are not yet supported.' % lbpack)
@@ -1002,7 +1026,7 @@ def _pp_attribute_names(header_defn):
     """
     normal_headers = list(name for name, positions in header_defn if name not in _SPECIAL_HEADERS)
     special_headers = list('_' + name for name in _SPECIAL_HEADERS)
-    extra_data = EXTRA_DATA.values()
+    extra_data = list(EXTRA_DATA.values())
     special_attributes = ['_raw_header', 'raw_lbtim', 'raw_lbpack',
                           'boundary_packing']
     return normal_headers + special_headers + extra_data + special_attributes
@@ -1108,9 +1132,9 @@ class PPField(object):
         attribute_priority_lookup = {name: loc[0] for name, loc in self.HEADER_DEFN}
 
         # With the attributes sorted the order will remain stable if extra attributes are added.
-        public_attribute_names =  attribute_priority_lookup.keys() + EXTRA_DATA.values()
+        public_attribute_names = list(attribute_priority_lookup.keys()) + list(EXTRA_DATA.values())
         self_attrs = [(name, getattr(self, name, None)) for name in public_attribute_names]
-        self_attrs = filter(lambda pair: pair[1] is not None, self_attrs)
+        self_attrs = [pair for pair in self_attrs if pair[1] is not None]
 
         # Output any masked data as separate `data` and `mask`
         # components, to avoid the standard MaskedArray output
@@ -1358,7 +1382,19 @@ class PPField(object):
         lb[self.HEADER_DICT['lbext'][0]] = len_of_data_payload // PP_WORD_DEPTH
 
         # Put the data length of pp.data into len_of_data_payload (in BYTES)
-        len_of_data_payload += data.size * PP_WORD_DEPTH
+        lbpack = lb[self.HEADER_DICT['lbpack'][0]]
+        if lbpack == 0:
+            len_of_data_payload += data.size * PP_WORD_DEPTH
+        elif lbpack == 1:
+            if mo_pack is not None:
+                packed_data = mo_pack.pack_wgdos(data.astype(np.float32),
+                                                 b[self.HEADER_DICT['bacc'][0]-45],
+                                                 b[self.HEADER_DICT['bmdi'][0]-45])
+                len_of_data_payload += len(packed_data)
+            else:
+                msg = 'Writing packed pp data with lbpack of {} ' \
+                      'requires mo_pack to be installed.'.format(lbpack)
+                raise NotImplementedError(msg)
 
         # populate lbrec in WORDS
         lb[self.HEADER_DICT['lblrec'][0]] = len_of_data_payload // PP_WORD_DEPTH
@@ -1389,9 +1425,9 @@ class PPField(object):
         # header length
         pp_file.write(struct.pack(">L", PP_HEADER_DEPTH))
 
-        # 49 integers
+        # 45 integers
         lb.tofile(pp_file)
-        # 16 floats
+        # 19 floats
         b.tofile(pp_file)
 
         #Header length (again)
@@ -1401,11 +1437,13 @@ class PPField(object):
         pp_file.write(struct.pack(">L", int(len_of_data_payload)))
 
         # the data itself
-        if lb[self.HEADER_DICT['lbpack'][0]] == 0:
+        if lbpack == 0:
             data.tofile(pp_file)
+        elif lbpack == 1:
+            pp_file.write(packed_data)
         else:
             msg = 'Writing packed pp data with lbpack of {} ' \
-                'is not supported.'.format(lb[self.HEADER_DICT['lbpack'][0]])
+                  'is not supported.'.format(lbpack)
             raise NotImplementedError(msg)
 
         # extra data elements
@@ -1901,7 +1939,7 @@ def _convert_constraints(constraints):
     unhandled_constraints = False
     for con in constraints:
         if isinstance(con, iris.AttributeConstraint) and \
-                con._attributes.keys() == ['STASH']:
+                list(con._attributes.keys()) == ['STASH']:
             # Convert a STASH constraint.
             stashobj = con._attributes['STASH']
             if not isinstance(stashobj, STASH):
@@ -1996,7 +2034,32 @@ def save(cube, target, append=False, field_coords=None):
     See also :func:`iris.io.save`.
 
     """
+    fields = as_fields(cube, field_coords, target)
+    save_fields(fields, target, append=append)
 
+
+def as_pairs(cube, field_coords=None, target=None):
+    """
+    Use the PP saving rules (and any user rules) to convert a cube to
+    an iterable of (2D cube, PP field) pairs.
+
+    Args:
+
+    * cube:
+        A :class:`iris.cube.Cube`, :class:`iris.cube.CubeList` or list of cubes.
+
+    Kwargs:
+
+    * field_coords:
+        List of 2 coords or coord names which are to be used for
+        reducing the given cube into 2d slices, which will ultimately
+        determine the x and y coordinates of the resulting fields.
+        If None, the final two  dimensions are chosen for slicing.
+
+    * target:
+        A filename or open file handle.
+
+    """
     # Open issues
     # Could use rules in "sections" ... e.g. to process the extensive dimensions; ...?
     # Could pre-process the cube to add extra convenient terms?
@@ -2035,16 +2098,6 @@ def save(cube, target, append=False, field_coords=None):
     # unused?
 
     _ensure_save_rules_loaded()
-
-    # pp file
-    if isinstance(target, basestring):
-        pp_file = open(target, "ab" if append else "wb")
-    elif hasattr(target, "write"):
-        if hasattr(target, "mode") and "b" not in target.mode:
-            raise ValueError("Target not binary")
-        pp_file = target
-    else:
-        raise ValueError("Can only save pp to filename or writable")
 
     n_dims = len(cube.shape)
     if n_dims < 2:
@@ -2093,8 +2146,99 @@ def save(cube, target, append=False, field_coords=None):
         verify_rules_ran = rules_result.matching_rules
 
         # Log the rules used
-        iris.fileformats.rules.log('PP_SAVE', target if isinstance(target, basestring) else target.name, verify_rules_ran)
+        if target is None:
+            target = 'None'
+        elif not isinstance(target, basestring):
+            target = target.name
+        iris.fileformats.rules.log('PP_SAVE', str(target), verify_rules_ran)
 
+        yield (slice2D, pp_field)
+
+
+def as_fields(cube, field_coords=None, target=None):
+    """
+    Use the PP saving rules (and any user rules) to convert a cube to
+    an iterable of PP fields.
+
+    Args:
+
+    * cube:
+        A :class:`iris.cube.Cube`, :class:`iris.cube.CubeList` or list of cubes.
+
+    Kwargs:
+
+    * field_coords:
+        List of 2 coords or coord names which are to be used for
+        reducing the given cube into 2d slices, which will ultimately
+        determine the x and y coordinates of the resulting fields.
+        If None, the final two  dimensions are chosen for slicing.
+
+    * target:
+        A filename or open file handle.
+
+    """
+    return (field for cube, field in as_pairs(cube, field_coords=field_coords,
+                                              target=target))
+
+
+def save_fields(fields, target, append=False):
+    """
+    Save an iterable of PP fields to a PP file.
+
+    Args:
+
+    * fields:
+        An iterable of PP fields.
+    * target:
+        A filename or open file handle.
+
+    Kwargs:
+
+    * append:
+        Whether to start a new file afresh or add the cube(s) to the end of the file.
+        Only applicable when target is a filename, not a file handle.
+        Default is False.
+    * callback:
+        A modifier/filter function.
+
+    See also :func:`iris.io.save`.
+
+    """
+    # Open issues
+
+    # Deal with:
+    #   LBLREC - Length of data record in words (incl. extra data)
+    #       Done on save(*)
+    #   LBUSER[0] - Data type
+    #       Done on save(*)
+    #   LBUSER[1] - Start address in DATA (?! or just set to "null"?)
+    #   BLEV - Level - the value of the coordinate for LBVC
+
+    # *) With the current on-save way of handling LBLREC and LBUSER[0] we can't
+    # check if they've been set correctly without *actually* saving as a binary
+    # PP file. That also means you can't use the same reference.txt file for
+    # loaded vs saved fields (unless you re-load the saved field!).
+
+    # Set to (or leave as) "null":
+    #   LBEGIN - Address of start of field in direct access dataset
+    #   LBEXP - Experiment identification
+    #   LBPROJ - Fields file projection number
+    #   LBTYP - Fields file field type code
+    #   LBLEV - Fields file level code / hybrid height model level
+
+    if isinstance(target, basestring):
+        pp_file = open(target, "ab" if append else "wb")
+        filename = target
+    elif hasattr(target, "write"):
+        if hasattr(target, "mode") and "b" not in target.mode:
+            raise ValueError("Target not binary")
+        filename = target.name if hasattr(target, 'name') else None
+        pp_file = target
+    else:
+        raise ValueError("Can only save pp to filename or writable")
+
+    # Save each field
+    for pp_field in fields:
         # Write to file
         pp_field.save(pp_file)
 

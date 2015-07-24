@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -25,6 +25,7 @@ with no public API. It is invoked from
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import warnings
 
@@ -164,9 +165,18 @@ def identification(cube, grib):
     # operational product, operational test, research product, etc
     # (missing for now)
     gribapi.grib_set_long(grib, "productionStatusOfProcessedData", 255)
+
+    # Code table 1.4
     # analysis, forecast, processed satellite, processed radar,
-    # (analysis and forecast products for now)
-    gribapi.grib_set_long(grib, "typeOfProcessedData", 2)
+    if cube.coords('realization'):
+        # assume realization will always have 1 and only 1 point
+        # as cubes saving to GRIB2 a 2D horizontal slices
+        if cube.coord('realization').points[0] != 0:
+            gribapi.grib_set_long(grib, "typeOfProcessedData", 4)
+        else:
+            gribapi.grib_set_long(grib, "typeOfProcessedData", 3)
+    else:
+        gribapi.grib_set_long(grib, "typeOfProcessedData", 2)
 
 
 ###############################################################################
@@ -661,6 +671,11 @@ def set_fixed_surfaces(cube, grib):
         output_unit = iris.unit.Unit("m")
         v_coord = cube.coord("height")
 
+    elif cube.coords("air_potential_temperature"):
+        grib_v_code = 107
+        output_unit = iris.unit.Unit('K')
+        v_coord = cube.coord("air_potential_temperature")
+
     # unknown / absent
     else:
         # check for *ANY* height coords at all...
@@ -865,6 +880,40 @@ def product_definition_template_8(cube, grib):
 
     """
     gribapi.grib_set(grib, "productDefinitionTemplateNumber", 8)
+    _product_definition_template_8_and_11(cube, grib)
+
+
+def product_definition_template_11(cube, grib):
+    """
+    Set keys within the provided grib message based on Product
+    Definition Template 4.8.
+
+    Template 4.8 is used to represent an aggregation over a time
+    interval.
+
+    """
+    gribapi.grib_set(grib, "productDefinitionTemplateNumber", 11)
+    if not (cube.coords('realization') and
+            len(cube.coord('realization').points) == 1):
+        raise ValueError("A cube 'realization' coordinate with one"
+                         "point is required, but not present")
+    gribapi.grib_set(grib, "perturbationNumber",
+                     cube.coord('realization').points[0])
+    # no encoding at present in Iris, set to missing
+    gribapi.grib_set(grib, "numberOfForecastsInEnsemble", 255)
+    gribapi.grib_set(grib, "typeOfEnsembleForecast", 255)
+    _product_definition_template_8_and_11(cube, grib)
+
+
+def _product_definition_template_8_and_11(cube, grib):
+    """
+    Set keys within the provided grib message based on common aspects of
+    Product Definition Templates 4.8 and 4.11.
+
+    Templates 4.8  and 4.11 are used to represent aggregations over a time
+    interval.
+
+    """
     product_definition_template_common(cube, grib)
 
     # Check for time coordinate.
@@ -934,9 +983,14 @@ def product_definition_section(cube, grib):
         # forecast (template 4.0)
         product_definition_template_0(cube, grib)
     elif _cube_is_time_statistic(cube):
-        # time processed (template 4.8)
+        if cube.coords('realization'):
+            # time processed (template 4.11)
+            pdt = product_definition_template_11
+        else:
+            # time processed (template 4.8)
+            pdt = product_definition_template_8
         try:
-            product_definition_template_8(cube, grib)
+            pdt(cube, grib)
         except ValueError as e:
             raise ValueError('Saving to GRIB2 failed: the cube is not suitable'
                              ' for saving as a time processed statistic GRIB'

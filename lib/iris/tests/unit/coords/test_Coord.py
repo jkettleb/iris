@@ -17,6 +17,7 @@
 """Unit tests for the :class:`iris.coords.Coord` class."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -171,8 +172,8 @@ class Test_cell(tests.IrisTest):
         coord = self._mock_coord()
         cell = Coord.cell(coord, 0)
         self.assertIs(cell.point, mock.sentinel.time)
-        self.assertEquals(cell.bound,
-                          (mock.sentinel.lower, mock.sentinel.upper))
+        self.assertEqual(cell.bound,
+                         (mock.sentinel.lower, mock.sentinel.upper))
 
     def test_time_as_object(self):
         # When iris.FUTURE.cell_datetime_objects is True, ensure
@@ -186,9 +187,9 @@ class Test_cell(tests.IrisTest):
         with mock.patch('iris.FUTURE', cell_datetime_objects=True):
             cell = Coord.cell(coord, 0)
         self.assertIs(cell.point, mock.sentinel.datetime)
-        self.assertEquals(cell.bound,
-                          (mock.sentinel.datetime_lower,
-                           mock.sentinel.datetime_upper))
+        self.assertEqual(cell.bound,
+                         (mock.sentinel.datetime_lower,
+                          mock.sentinel.datetime_upper))
         self.assertEqual(coord.units.num2date.call_args_list,
                          [mock.call((mock.sentinel.time,)),
                           mock.call((mock.sentinel.lower,
@@ -270,7 +271,7 @@ class Test_is_compatible(tests.IrisTest):
 
 class Test_DimCoord_copy(tests.IrisTest):
     def test_writable_points(self):
-        coord1 = DimCoord(range(5),
+        coord1 = DimCoord(np.arange(5),
                           bounds=[[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]])
         coord2 = coord1.copy()
         msg = 'destination is read-only'

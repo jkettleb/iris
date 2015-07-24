@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -16,6 +16,7 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # import iris tests first so that some things can be initialised before importing anything else
 import iris.tests as tests
@@ -271,7 +272,8 @@ class TestPPSaveRules(tests.IrisTest, pp.PPTest):
             iris.save(ll_cube, temp_filename)
      
             # Check the lbproc is what we expect
-            self.assertEquals(self.lbproc_from_pp(temp_filename), iris.fileformats.pp.lbproc_map[process_desc])
+            self.assertEqual(self.lbproc_from_pp(temp_filename),
+                             iris.fileformats.pp.lbproc_map[process_desc])
 
             os.remove(temp_filename)
 
@@ -290,7 +292,7 @@ class TestPPSaveRules(tests.IrisTest, pp.PPTest):
             iris.save(ll_cube, temp_filename)
             
             # Check the lbproc is what we expect
-            self.assertEquals(self.lbproc_from_pp(temp_filename), lbproc)
+            self.assertEqual(self.lbproc_from_pp(temp_filename), lbproc)
 
             os.remove(temp_filename)
             

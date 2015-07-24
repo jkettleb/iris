@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -20,6 +20,7 @@ Processing of simple IF-THEN rules.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import abc
 import collections
@@ -316,7 +317,7 @@ class Rule(object):
         # NB. This creates the name '_exec_conditions' in the local
         # namespace, which is then used below.
         code = 'def _exec_conditions(self, field, f, pp, grib, cm): return %s'
-        exec compile(code % conditions, '<string>', 'exec')
+        exec(compile(code % conditions, '<string>', 'exec'))
         # Make it a method of ours.
         self._exec_conditions = types.MethodType(_exec_conditions, self, type(self))
 
@@ -402,11 +403,11 @@ class FunctionRule(Rule):
     """A Rule with values returned by its actions."""
     def _create_action_method(self, i, action):
         # CM loading style action. Returns an object, such as a coord.
-        exec compile('def _exec_action_%d(self, field, f, pp, grib, cm): return %s' % (i, action), '<string>', 'exec')
+        exec(compile('def _exec_action_%d(self, field, f, pp, grib, cm): return %s' % (i, action), '<string>', 'exec'))
         # Make it a method of ours.
-        exec 'self._exec_action_%d = types.MethodType(_exec_action_%d, self, type(self))' % (i, i)
+        exec('self._exec_action_%d = types.MethodType(_exec_action_%d, self, type(self))' % (i, i))
         # Add to our list of actions.
-        exec 'self._exec_actions.append(self._exec_action_%d)' % i
+        exec('self._exec_actions.append(self._exec_action_%d)' % i)
 
     def _process_action_result(self, obj, cube):
         """Process the result of an action."""
@@ -462,11 +463,11 @@ class ProcedureRule(Rule):
     """A Rule with nothing returned by its actions."""
     def _create_action_method(self, i, action):
         # PP saving style action. No return value, e.g. "pp.lbft = 3".
-        exec compile('def _exec_action_%d(self, field, f, pp, grib, cm): %s' % (i, action), '<string>', 'exec')
+        exec(compile('def _exec_action_%d(self, field, f, pp, grib, cm): %s' % (i, action), '<string>', 'exec'))
         # Make it a method of ours.
-        exec 'self._exec_action_%d = types.MethodType(_exec_action_%d, self, type(self))' % (i, i)
+        exec('self._exec_action_%d = types.MethodType(_exec_action_%d, self, type(self))' % (i, i))
         # Add to our list of actions.
-        exec 'self._exec_actions.append(self._exec_action_%d)' % i
+        exec('self._exec_actions.append(self._exec_action_%d)' % i)
 
     def _process_action_result(self, obj, cube):
         # This should always be None, as our rules won't create anything.
@@ -704,7 +705,7 @@ def _ensure_aligned(regrid_cache, src_cube, target_cube):
         # ensure each target coord is either a scalar or maps to a
         # single, distinct dimension.
         target_dims = [target_cube.coord_dims(coord) for coord in target_coords]
-        target_dims = filter(None, target_dims)
+        target_dims = list(filter(None, target_dims))
         unique_dims = set()
         for dims in target_dims:
             unique_dims.update(dims)

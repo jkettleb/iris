@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Integration tests for pickling things."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -27,6 +28,7 @@ import cPickle as pickle
 from iris.fileformats.grib import _GribMessage
 
 
+@tests.skip_data
 class TestGribMessage(tests.IrisTest):
     def test(self):
         # Check that a _GribMessage pickles without errors.

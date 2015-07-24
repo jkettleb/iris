@@ -20,6 +20,7 @@ Definitions of coordinates.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 from abc import ABCMeta, abstractproperty
 import collections
@@ -800,7 +801,7 @@ class Coord(CFVariableMixin):
                 return False
 
         if self.bounds is not None:
-            for b_index in xrange(self.nbounds):
+            for b_index in range(self.nbounds):
                 if not iris.util.monotonic(self.bounds[..., b_index],
                                            strict=True):
                     return False
@@ -1239,13 +1240,20 @@ class Coord(CFVariableMixin):
 
     def _xml_id(self):
         # Returns a consistent, unique string identifier for this coordinate.
-        unique_value = (self.standard_name, self.long_name, self.units,
-                        tuple(sorted(self.attributes.items())),
-                        self.coord_system)
+        unique_value = b''
+        if self.standard_name:
+            unique_value += self.standard_name.encode('utf-8')
+        unique_value += b'\0'
+        if self.long_name:
+            unique_value += self.long_name.encode('utf-8')
+        unique_value += b'\0'
+        unique_value += str(self.units).encode('utf-8') + b'\0'
+        for k, v in sorted(self.attributes.items()):
+            unique_value += (str(k) + ':' + str(v)).encode('utf-8') + b'\0'
+        unique_value += str(self.coord_system).encode('utf-8') + b'\0'
         # Mask to ensure consistency across Python versions & platforms.
-        crc = zlib.crc32(str(unique_value)) & 0xffffffff
-        # 'L' added by 32-bit systems.
-        return hex(crc).lstrip('0x').rstrip('L')
+        crc = zlib.crc32(unique_value) & 0xffffffff
+        return '%08x' % (crc, )
 
     def _value_type_name(self):
         """
@@ -1449,7 +1457,7 @@ class DimCoord(Coord):
             if n_points > 1:
 
                 directions = set()
-                for b_index in xrange(n_bounds):
+                for b_index in range(n_bounds):
                     monotonic, direction = iris.util.monotonic(
                         bounds[:, b_index], strict=True, return_direction=True)
                     if not monotonic:
@@ -1680,9 +1688,9 @@ class CellMethod(iris.util._OrderedHashable):
         cellMethod_xml_element = doc.createElement('cellMethod')
         cellMethod_xml_element.setAttribute('method', self.method)
 
-        for coord_name, interval, comment in map(None, self.coord_names,
-                                                 self.intervals,
-                                                 self.comments):
+        for coord_name, interval, comment in izip_longest(self.coord_names,
+                                                          self.intervals,
+                                                          self.comments):
             coord_xml_element = doc.createElement('coord')
             if coord_name is not None:
                 coord_xml_element.setAttribute('name', coord_name)
@@ -1701,7 +1709,7 @@ class _CellIterator(collections.Iterator):
         self._coord = coord
         if coord.ndim != 1:
             raise iris.exceptions.CoordinateMultiDimError(coord)
-        self._indices = iter(xrange(coord.shape[0]))
+        self._indices = iter(range(coord.shape[0]))
 
     def next(self):
         # NB. When self._indices runs out it will raise StopIteration for us.

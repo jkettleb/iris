@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -16,6 +16,7 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # import iris tests first so that some things can be initialised before importing anything else
 import iris.tests as tests
@@ -122,8 +123,10 @@ class TestBasicMaths(tests.IrisTest):
 
         xdim = a.ndim-1
         ydim = a.ndim-2
-        c_x = iris.coords.DimCoord(points=range(a.shape[xdim]), long_name='x_coord', units=self.cube.units)
-        c_y = iris.coords.AuxCoord(points=range(a.shape[ydim]), long_name='y_coord', units=self.cube.units)
+        c_x = iris.coords.DimCoord(points=np.arange(a.shape[xdim]),
+                                   long_name='x_coord', units=self.cube.units)
+        c_y = iris.coords.AuxCoord(points=np.arange(a.shape[ydim]),
+                                   long_name='y_coord', units=self.cube.units)
 
         self.assertCML(a, ('analysis', 'maths_original.cml'))
 
@@ -152,8 +155,10 @@ class TestBasicMaths(tests.IrisTest):
 
         xdim = a.ndim-1
         ydim = a.ndim-2
-        c_x = iris.coords.DimCoord(points=range(a.shape[xdim]), long_name='x_coord', units=self.cube.units)
-        c_y = iris.coords.AuxCoord(points=range(a.shape[ydim]), long_name='y_coord', units=self.cube.units)
+        c_x = iris.coords.DimCoord(points=np.arange(a.shape[xdim]),
+                                   long_name='x_coord', units=self.cube.units)
+        c_y = iris.coords.AuxCoord(points=np.arange(a.shape[ydim]),
+                                   long_name='y_coord', units=self.cube.units)
 
         self.assertCML(a, ('analysis', 'maths_original.cml'))
 
@@ -187,8 +192,12 @@ class TestBasicMaths(tests.IrisTest):
 
         xdim = a.ndim-1
         ydim = a.ndim-2
-        c_axis_length_fail = iris.coords.DimCoord(points=range(a.shape[ydim]), long_name='x_coord', units=self.cube.units)
-        c_unit_fail = iris.coords.AuxCoord(points=range(a.shape[xdim]), long_name='x_coord', units='volts')
+        c_axis_length_fail = iris.coords.DimCoord(
+            points=np.arange(a.shape[ydim]),
+            long_name='x_coord',
+            units=self.cube.units)
+        c_unit_fail = iris.coords.AuxCoord(points=np.arange(a.shape[xdim]),
+                                           long_name='x_coord', units='volts')
 
         self.assertRaises(ValueError, iris.analysis.maths.add, a, c_axis_length_fail)
         self.assertRaises(iris.exceptions.NotYetImplementedError, iris.analysis.maths.add, a, c_unit_fail)

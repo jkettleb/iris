@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Integration tests for loading and saving netcdf files."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -24,6 +25,7 @@ import iris.tests as tests
 
 from contextlib import contextmanager
 import mock
+import numpy as np
 
 import iris
 from iris.cube import Cube, CubeList
@@ -97,6 +99,29 @@ class TestSaveMultipleAuxFactories(tests.IrisTest):
                 self.assertRaisesRegexp(ValueError, 'multiple aux factories'):
             iris.save(cube, filename)
 
+    def test_hybrid_height_cubes(self):
+        hh1 = stock.simple_4d_with_hybrid_height()
+        hh1.attributes['cube'] = 'hh1'
+        hh2 = stock.simple_4d_with_hybrid_height()
+        hh2.attributes['cube'] = 'hh2'
+        sa = hh2.coord('surface_altitude')
+        sa.points = sa.points * 10
+        with self.temp_filename('.nc') as fname:
+            iris.save([hh1, hh2], fname)
+            cubes = iris.load(fname)
+            cubes = sorted(cubes, key=lambda cube: cube.attributes['cube'])
+            self.assertCML(cubes)
+
+    def test_hybrid_height_cubes_on_dimension_coordinate(self):
+        hh1 = stock.hybrid_height()
+        hh2 = stock.hybrid_height()
+        sa = hh2.coord('surface_altitude')
+        sa.points = sa.points * 10
+        emsg = 'Unable to create dimensonless vertical coordinate.'
+        with self.temp_filename('.nc') as fname, \
+                self.assertRaisesRegexp(ValueError, emsg):
+            iris.save([hh1, hh2], fname)
+
 
 class TestUmVersionAttribute(tests.IrisTest):
     def test_single_saves_as_global(self):
@@ -161,6 +186,8 @@ class TestConventionsAttributes(tests.IrisTest):
 
 
 class TestLazySave(tests.IrisTest):
+
+    @tests.skip_data
     def test_lazy_preserved_save(self):
         fpath = tests.get_data_path(('NetCDF', 'label_and_climate',
                                      'small_FC_167_mon_19601101.nc'))
@@ -170,6 +197,17 @@ class TestLazySave(tests.IrisTest):
             with Saver(nc_path, 'NETCDF4') as saver:
                 saver.write(acube)
         self.assertTrue(acube.has_lazy_data())
+
+    def test_lazy_mask_preserve_fill_value(self):
+        cube = iris.cube.Cube(np.ma.array([0, 1], mask=[False, True],
+                                          fill_value=-1))
+        with self.temp_filename(suffix='.nc') as filename, \
+                self.temp_filename(suffix='.nc') as other_filename:
+            iris.save(cube, filename, unlimited_dimensions=[])
+            ncube = iris.load_cube(filename)
+            # Lazy save of the masked cube
+            iris.save(ncube, other_filename, unlimited_dimensions=[])
+            self.assertCDL(other_filename)
 
 
 if __name__ == "__main__":

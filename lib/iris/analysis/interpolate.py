@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -22,6 +22,7 @@ See also: :mod:`NumPy <numpy>`, and :ref:`SciPy <scipy:modindex>`.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import collections
 import warnings
@@ -58,7 +59,7 @@ def _cartesian_sample_points(sample_points, sample_point_coord_names):
 
     # Find lat and lon coord indices
     i_lat = i_lon = None
-    i_non_latlon = range(len(sample_point_coord_names))
+    i_non_latlon = list(range(len(sample_point_coord_names)))
     for i, name in enumerate(sample_point_coord_names):
         if "latitude" in name:
             i_lat = i
@@ -121,7 +122,7 @@ def nearest_neighbour_indices(cube, sample_points):
     """
     if isinstance(sample_points, dict):
         warnings.warn('Providing a dictionary to specify points is deprecated. Please provide a list of (coordinate, values) pairs.')
-        sample_points = sample_points.items()
+        sample_points = list(sample_points.items())
 
     if sample_points:
         try:
@@ -196,7 +197,7 @@ def _nearest_neighbour_indices_ndcoords(cube, sample_point, cache=None):
 
     if isinstance(sample_point, dict):
         warnings.warn('Providing a dictionary to specify points is deprecated. Please provide a list of (coordinate, values) pairs.')
-        sample_point = sample_point.items()
+        sample_point = list(sample_point.items())
 
     if sample_point:
         try:
@@ -632,8 +633,8 @@ def linear(cube, sample_points, extrapolation_mode='linear'):
 
     """
     if isinstance(sample_points, dict):
-        sample_points = sample_points.items()
-    
+        sample_points = list(sample_points.items())
+
     # catch the case where a user passes a single (coord/name, value) pair rather than a list of pairs
     if sample_points and not (isinstance(sample_points[0], collections.Container) and not isinstance(sample_points[0], basestring)):
         raise TypeError('Expecting the sample points to be a list of tuple pairs representing (coord, points), got a list of %s.' % type(sample_points[0]))
@@ -730,7 +731,7 @@ class Linear1dExtrapolator(object):
 
                 r = self._interpolator(requested_x[ok])
                 # Reshape the properly formed array to put the interpolator.axis last i.e. dims 0, 1, 2 -> 0, 2, 1 if axis = 1
-                axes = range(r.ndim)
+                axes = list(range(r.ndim))
                 del axes[self._interpolator.axis]
                 axes.append(self._interpolator.axis)
 
@@ -748,7 +749,7 @@ class Linear1dExtrapolator(object):
                 grad = (self.y[..., -1:] - self.y[..., -2:-1]) / (self.x[-1] - self.x[-2])
                 result[interpolator_result_index] = self.y[..., -1:] + (requested_x[gt] - self.x[-1]) * grad
 
-            axes = range(len(interpolator_result_index))
+            axes = list(range(len(interpolator_result_index)))
             axes.insert(self._interpolator.axis, axes.pop(axes[-1]))
             result = result.transpose(axes)
 

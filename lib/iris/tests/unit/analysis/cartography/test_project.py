@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the :func:`iris.analysis.cartography.project` function."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -34,10 +35,10 @@ class TestAll(tests.IrisTest):
         cs = iris.coord_systems.GeogCS(654321)
         self.cube = iris.cube.Cube(np.zeros(25).reshape(5, 5))
         self.cube.add_dim_coord(
-            DimCoord(range(5), standard_name="latitude", units='degrees',
+            DimCoord(np.arange(5), standard_name="latitude", units='degrees',
                      coord_system=cs), 0)
         self.cube.add_dim_coord(
-            DimCoord(range(5), standard_name="longitude", units='degrees',
+            DimCoord(np.arange(5), standard_name="longitude", units='degrees',
                      coord_system=cs), 1)
 
         self.tcs = iris.coord_systems.GeogCS(600000)

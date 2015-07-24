@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the `iris.cube.CubeList` class."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -86,32 +87,32 @@ class Test_extract_overlapping(tests.IrisTest):
     def test_extract_one_str_dim(self):
         cubes = iris.cube.CubeList([self.cube[2:], self.cube[:4]])
         a, b = cubes.extract_overlapping('time')
-        self.assertEquals(a.coord('time'), self.cube.coord('time')[2:4])
-        self.assertEquals(b.coord('time'), self.cube.coord('time')[2:4])
+        self.assertEqual(a.coord('time'), self.cube.coord('time')[2:4])
+        self.assertEqual(b.coord('time'), self.cube.coord('time')[2:4])
 
     def test_extract_one_list_dim(self):
         cubes = iris.cube.CubeList([self.cube[2:], self.cube[:4]])
         a, b = cubes.extract_overlapping(['time'])
-        self.assertEquals(a.coord('time'), self.cube.coord('time')[2:4])
-        self.assertEquals(b.coord('time'), self.cube.coord('time')[2:4])
+        self.assertEqual(a.coord('time'), self.cube.coord('time')[2:4])
+        self.assertEqual(b.coord('time'), self.cube.coord('time')[2:4])
 
     def test_extract_two_dims(self):
         cubes = iris.cube.CubeList([self.cube[2:, 5:], self.cube[:4, :10]])
         a, b = cubes.extract_overlapping(['time', 'latitude'])
-        self.assertEquals(a.coord('time'),
-                          self.cube.coord('time')[2:4])
-        self.assertEquals(a.coord('latitude'),
-                          self.cube.coord('latitude')[5:10])
-        self.assertEquals(b.coord('time'),
-                          self.cube.coord('time')[2:4])
-        self.assertEquals(b.coord('latitude'),
-                          self.cube.coord('latitude')[5:10])
+        self.assertEqual(a.coord('time'),
+                         self.cube.coord('time')[2:4])
+        self.assertEqual(a.coord('latitude'),
+                         self.cube.coord('latitude')[5:10])
+        self.assertEqual(b.coord('time'),
+                         self.cube.coord('time')[2:4])
+        self.assertEqual(b.coord('latitude'),
+                         self.cube.coord('latitude')[5:10])
 
     def test_different_orders(self):
         cubes = iris.cube.CubeList([self.cube[::-1][:4], self.cube[:4]])
         a, b = cubes.extract_overlapping('time')
-        self.assertEquals(a.coord('time'), self.cube[::-1].coord('time')[2:4])
-        self.assertEquals(b.coord('time'), self.cube.coord('time')[2:4])
+        self.assertEqual(a.coord('time'), self.cube[::-1].coord('time')[2:4])
+        self.assertEqual(b.coord('time'), self.cube.coord('time')[2:4])
 
 
 class Test_merge_cube(tests.IrisTest):

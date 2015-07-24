@@ -16,6 +16,7 @@
 # along with Iris.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Historically this was auto-generated from
 # SciTools/iris-code-generators:tools/gen_rules.py
@@ -423,15 +424,16 @@ def _convert_time_coords(lbcode, lbtim, epoch_hours_unit,
     t1, t2, lbft = _reshape_vector_args([(t1, t1_dims), (t2, t2_dims),
                                          (lbft, lbft_dims)])
 
-    def date2hours(times_array):
-        """Convert datetime values to hours-since-epoch values."""
-        # Use a minimum-1D form, as netcdftime.date2num doesn't like scalars.
-        times_array = np.asarray(times_array)
-        return epoch_hours_unit.date2num(
-            np.atleast_1d(times_array)).reshape(times_array.shape)
+    def date2hours(t):
+        epoch_hours = epoch_hours_unit.date2num(t)
+        if t.minute == 0 and t.second == 0:
+            epoch_hours = round(epoch_hours)
+        return epoch_hours
 
-    t1_epoch_hours = date2hours(t1)
-    t2_epoch_hours = date2hours(t2)
+    dates2hours = np.vectorize(date2hours)
+
+    t1_epoch_hours = dates2hours(t1)
+    t2_epoch_hours = dates2hours(t2)
     hours_from_t1_to_t2 = t2_epoch_hours - t1_epoch_hours
     hours_from_t2_to_t1 = t1_epoch_hours - t2_epoch_hours
     coords_and_dims = []
@@ -557,8 +559,14 @@ def _convert_scalar_time_coords(lbcode, lbtim, epoch_hours_unit, t1, t2, lbft):
     Returns a list of coords_and_dims.
 
     """
-    t1_epoch_hours = epoch_hours_unit.date2num(t1)
-    t2_epoch_hours = epoch_hours_unit.date2num(t2)
+    def date2hours(t):
+        epoch_hours = epoch_hours_unit.date2num(t)
+        if t.minute == 0 and t.second == 0:
+            epoch_hours = round(epoch_hours)
+        return epoch_hours
+
+    t1_epoch_hours = date2hours(t1)
+    t2_epoch_hours = date2hours(t2)
     hours_from_t1_to_t2 = t2_epoch_hours - t1_epoch_hours
     hours_from_t2_to_t1 = t1_epoch_hours - t2_epoch_hours
     coords_and_dims = []
@@ -626,14 +634,14 @@ def _convert_scalar_vertical_coords(lbcode, lbvc, blev, lblev, stash,
 
     if \
             (lbvc == 1) and \
-            (not (str(stash) in STASHCODE_IMPLIED_HEIGHTS.keys())) and \
+            (str(stash) not in STASHCODE_IMPLIED_HEIGHTS) and \
             (blev != -1):
         coords_and_dims.append(
             (DimCoord(blev, standard_name='height', units='m',
                       attributes={'positive': 'up'}),
              None))
 
-    if str(stash) in STASHCODE_IMPLIED_HEIGHTS.keys():
+    if str(stash) in STASHCODE_IMPLIED_HEIGHTS:
         coords_and_dims.append(
             (DimCoord(STASHCODE_IMPLIED_HEIGHTS[str(stash)],
                       standard_name='height', units='m',
@@ -1014,17 +1022,25 @@ def _all_other_rules(f):
                       coord_system=f.coord_system()),
              1 if f.lbcode.ix == 13 else 0))
 
-    # LBPROC codings (--> cell methods + attributes)
-    if f.lbproc == 128:
-        method = 'mean'
+    # LBPROC codings (--> cell method + attributes)
+    unhandled_lbproc = True
+    zone_method = None
+    time_method = None
+    if f.lbproc == 0:
+        unhandled_lbproc = False
+    elif f.lbproc == 64:
+        zone_method = 'mean'
+    elif f.lbproc == 128:
+        time_method = 'mean'
     elif f.lbproc == 4096:
-        method = 'minimum'
+        time_method = 'minimum'
     elif f.lbproc == 8192:
-        method = 'maximum'
-    else:
-        method = None
+        time_method = 'maximum'
+    elif f.lbproc == 192:
+        time_method = 'mean'
+        zone_method = 'mean'
 
-    if method is not None:
+    if time_method is not None:
         if f.lbtim.ia != 0:
             intervals = '{} hour'.format(f.lbtim.ia)
         else:
@@ -1032,26 +1048,41 @@ def _all_other_rules(f):
 
         if f.lbtim.ib == 2:
             # Aggregation over a period of time.
-            cell_methods.append(CellMethod(method,
+            cell_methods.append(CellMethod(time_method,
                                            coords='time',
                                            intervals=intervals))
+            unhandled_lbproc = False
         elif f.lbtim.ib == 3 and f.lbproc == 128:
             # Aggregation over a period of time within a year, over a number
             # of years.
             # Only mean (lbproc of 128) is handled as the min/max
             # interpretation is ambiguous e.g. decadal mean of daily max,
             # decadal max of daily mean, decadal mean of max daily mean etc.
-            cell_methods.append(CellMethod('{} within years'.format(method),
-                                           coords='time',
-                                           intervals=intervals))
-            cell_methods.append(CellMethod('{} over years'.format(method),
-                                           coords='time'))
+            cell_methods.append(
+                CellMethod('{} within years'.format(time_method),
+                           coords='time', intervals=intervals))
+            cell_methods.append(
+                CellMethod('{} over years'.format(time_method),
+                           coords='time'))
+            unhandled_lbproc = False
         else:
             # Generic cell method to indicate a time aggregation.
-            cell_methods.append(CellMethod(method,
+            cell_methods.append(CellMethod(time_method,
                                            coords='time'))
+            unhandled_lbproc = False
 
-    if f.lbproc not in [0, 128, 4096, 8192]:
+    if zone_method is not None:
+        if f.lbcode == 1:
+            cell_methods.append(CellMethod(zone_method, coords='longitude'))
+            unhandled_lbproc = False
+        elif f.lbcode == 101:
+            cell_methods.append(CellMethod(zone_method,
+                                           coords='grid_longitude'))
+            unhandled_lbproc = False
+        else:
+            unhandled_lbproc = True
+
+    if unhandled_lbproc:
         attributes["ukmo__process_flags"] = tuple(sorted(
             [name for value, name in iris.fileformats.pp.lbproc_map.iteritems()
              if isinstance(value, int) and f.lbproc & value]))

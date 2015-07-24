@@ -21,13 +21,13 @@ Classes for representing multi-dimensional data with metadata.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 from xml.dom.minidom import Document
 import collections
 import copy
 import datetime
 import operator
-import UserDict
 import warnings
 import zlib
 
@@ -595,6 +595,13 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
     See the :doc:`user guide</userguide/index>` for more information.
 
     """
+
+    #: Indicates to client code that the object supports
+    #: "orthogonal indexing", which means that slices that are 1d arrays
+    #: or lists slice along each dimension independently. This behavior
+    #: is similar to Fortran or Matlab, but different than numpy.
+    __orthogonal_indexing__ = True
+
     def __init__(self, data, standard_name=None, long_name=None,
                  var_name=None, units=None, attributes=None,
                  cell_methods=None, dim_coords_and_dims=None,
@@ -737,8 +744,8 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             try:
                 value = CubeMetadata(*value)
             except TypeError:
-                attr_check = lambda name: not hasattr(value, name)
-                missing_attrs = filter(attr_check, CubeMetadata._fields)
+                missing_attrs = [field for field in CubeMetadata._fields
+                                 if not hasattr(value, field)]
                 if missing_attrs:
                     raise TypeError('Invalid/incomplete metadata')
         for name in CubeMetadata._fields:
@@ -1613,11 +1620,11 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
 
         """
         # Create a set to contain the axis names for each data dimension.
-        dim_names = [set() for dim in xrange(len(self.shape))]
+        dim_names = [set() for dim in range(len(self.shape))]
 
         # Add the dim_coord names that participate in the associated data
         # dimensions.
-        for dim in xrange(len(self.shape)):
+        for dim in range(len(self.shape)):
             dim_coords = self.coords(contains_dimension=dim, dim_coords=True)
             if dim_coords:
                 dim_names[dim].add(dim_coords[0].name())
@@ -1730,7 +1737,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                     # - WITH dimension markers.
                     for index, coord in enumerate(vector_coords):
                         dims = self.coord_dims(coord)
-                        for dim in xrange(len(self.shape)):
+                        for dim in range(len(self.shape)):
                             width = alignment[dim] - len(vector_summary[index])
                             char = 'x' if dim in dims else '-'
                             line = '{pad:{width}}{char}'.format(pad=' ',
@@ -2113,7 +2120,6 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         if modulus is None:
             raise ValueError('coordinate units with no modulus are not yet'
                              ' supported')
-
         subsets, points, bounds = self._intersect_modulus(coord,
                                                           minimum, maximum,
                                                           min_inclusive,
@@ -2234,8 +2240,11 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
             # and call the new bounds = the new points + the difference.
             pre_wrap_delta = np.diff(coord.bounds[inside_indices])
             post_wrap_delta = np.diff(bounds[inside_indices])
-            split_cell_indices, _ = np.where(pre_wrap_delta != post_wrap_delta)
-            if split_cell_indices.size:
+            close_enough = np.allclose(pre_wrap_delta, post_wrap_delta)
+            if not close_enough:
+                split_cell_indices, _ = np.where(pre_wrap_delta !=
+                                                 post_wrap_delta)
+
                 # Recalculate the extended minimum.
                 indices = inside_indices[split_cell_indices]
                 cells = bounds[indices]
@@ -2467,14 +2476,14 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         def remap_dim_coord(coord_and_dim):
             coord, dim = coord_and_dim
             return coord, dim_mapping[dim]
-        self._dim_coords_and_dims = map(remap_dim_coord,
-                                        self._dim_coords_and_dims)
+        self._dim_coords_and_dims = list(map(remap_dim_coord,
+                                             self._dim_coords_and_dims))
 
         def remap_aux_coord(coord_and_dims):
             coord, dims = coord_and_dims
             return coord, tuple(dim_mapping[dim] for dim in dims)
-        self._aux_coords_and_dims = map(remap_aux_coord,
-                                        self._aux_coords_and_dims)
+        self._aux_coords_and_dims = list(map(remap_aux_coord,
+                                             self._aux_coords_and_dims))
 
     def xml(self, checksum=False, order=True, byteorder=True):
         """
@@ -2559,17 +2568,19 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
                 # sensitive to unused numbers. Use a fixed value so
                 # a change in fill_value doesn't affect the
                 # checksum.
-                crc = hex(zlib.crc32(normalise(data.filled(0))))
+                crc = '0x%08x' % (
+                    zlib.crc32(normalise(data.filled(0))) & 0xffffffff, )
                 data_xml_element.setAttribute("checksum", crc)
                 if ma.is_masked(data):
-                    crc = hex(zlib.crc32(normalise(data.mask)))
+                    crc = '0x%08x' % (
+                        zlib.crc32(normalise(data.mask)) & 0xffffffff, )
                 else:
                     crc = 'no-masked-elements'
                 data_xml_element.setAttribute("mask_checksum", crc)
                 data_xml_element.setAttribute('fill_value',
                                               str(data.fill_value))
             else:
-                crc = hex(zlib.crc32(normalise(data)))
+                crc = '0x%08x' % (zlib.crc32(normalise(data)) & 0xffffffff, )
                 data_xml_element.setAttribute("checksum", crc)
         elif self.has_lazy_data():
             data_xml_element.setAttribute("state", "deferred")
@@ -2857,8 +2868,8 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         if (isinstance(aggregator, iris.analysis.WeightedAggregator) and
                 not aggregator.uses_weighting(**kwargs)):
             msg = "Collapsing spatial coordinate {!r} without weighting"
-            lat_match = filter(lambda coord: 'latitude' in coord.name(),
-                               coords)
+            lat_match = [coord for coord in coords
+                         if 'latitude' in coord.name()]
             if lat_match:
                 for coord in lat_match:
                     warnings.warn(msg.format(coord.name()))
@@ -3069,8 +3080,9 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
 
         # Determine the other coordinates that share the same group-by
         # coordinate dimension.
-        shared_coords = filter(lambda coord_: coord_ not in groupby_coords,
-                               self.coords(dimensions=dimension_to_groupby))
+        shared_coords = list(filter(
+            lambda coord_: coord_ not in groupby_coords,
+            self.coords(dimensions=dimension_to_groupby)))
 
         # Create the aggregation group-by instance.
         groupby = iris.analysis._Groupby(groupby_coords, shared_coords)
@@ -3304,7 +3316,7 @@ bound=(1994-12-01 00:00:00, 1998-12-01 00:00:00)
         # needed
         if isinstance(aggregator, iris.analysis.WeightedAggregator) and \
                 aggregator.uses_weighting(**kwargs):
-            if 'weights' in kwargs.keys():
+            if 'weights' in kwargs:
                 weights = kwargs['weights']
                 if weights.ndim > 1 or weights.shape[0] != window:
                     raise ValueError('Weights for rolling window aggregation '
@@ -3423,7 +3435,7 @@ calendar='gregorian')
         return regridder(self)
 
 
-class ClassDict(object, UserDict.DictMixin):
+class ClassDict(collections.MutableMapping, object):
     """
     A mapping that stores objects keyed on their superclasses and their names.
 
@@ -3473,6 +3485,9 @@ class ClassDict(object, UserDict.DictMixin):
         except KeyError:
             raise KeyError('Coordinate system %r does not exist.' % class_)
 
+    def __setitem__(self, key, value):
+        raise NotImplementedError('You must call the add method instead.')
+
     def __delitem__(self, class_):
         cs = self[class_]
         keys = [k for k, v in self._retrieval_map.iteritems() if v == cs]
@@ -3480,6 +3495,13 @@ class ClassDict(object, UserDict.DictMixin):
             del self._retrieval_map[key]
         del self._basic_map[type(cs)]
         return cs
+
+    def __len__(self):
+        return len(self._basic_map)
+
+    def __iter__(self):
+        for item in self._basic_map:
+            yield item
 
     def keys(self):
         '''Return the keys of the dictionary mapping.'''
@@ -3530,7 +3552,7 @@ class _SliceIterator(collections.Iterator):
         cube = self._cube[tuple(index_list)]
 
         if self._ordered:
-            if any(self._mod_requested_dims != range(len(cube.shape))):
+            if any(self._mod_requested_dims != list(range(len(cube.shape)))):
                 cube.transpose(self._mod_requested_dims)
 
         return cube

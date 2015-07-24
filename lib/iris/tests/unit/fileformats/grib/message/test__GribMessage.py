@@ -20,6 +20,7 @@ Unit tests for the `iris.fileformats.grib.message._GribMessage` class.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -219,6 +220,17 @@ class Test_data__grid_template_5(tests.IrisTest, Mixin_data__grid_template):
 class Test_data__grid_template_12(tests.IrisTest, Mixin_data__grid_template):
     def section_3(self, scanning_mode):
         return _example_section_3(12, scanning_mode)
+
+
+class Test_data__grid_template_30(tests.IrisTest, Mixin_data__grid_template):
+    def section_3(self, scanning_mode):
+        section_3 = _example_section_3(30, scanning_mode)
+        # Dimensions are 'Nx' + 'Ny' instead of 'Ni' + 'Nj'.
+        section_3['Nx'] = section_3['Ni']
+        section_3['Ny'] = section_3['Nj']
+        del section_3['Ni']
+        del section_3['Nj']
+        return section_3
 
 
 class Test_data__grid_template_40_regular(tests.IrisTest,

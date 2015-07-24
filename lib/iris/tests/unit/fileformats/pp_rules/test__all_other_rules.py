@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the `iris.fileformats.pp._all_other_rules` function."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -26,6 +27,7 @@ import mock
 
 import iris
 from iris.fileformats.pp_rules import _all_other_rules
+from iris.fileformats.pp import SplittableInt
 from iris.coords import CellMethod
 
 
@@ -113,6 +115,28 @@ class TestCellMethods(tests.IrisTest):
                                lbtim=mock.Mock(ia=24, ib=5, ic=3))
         res = _all_other_rules(field)[CELL_METHODS_INDEX]
         expected = [CellMethod('minimum', 'time')]
+        self.assertEqual(res, expected)
+
+    def test_multiple_unordered_lbprocs(self):
+        field = mock.MagicMock(lbproc=192,
+                               lbtim=mock.Mock(ia=24, ib=5, ic=3),
+                               lbcode=SplittableInt(1),
+                               _x_coord_name=lambda: 'longitude',
+                               _y_coord_name=lambda: 'latitude')
+        res = _all_other_rules(field)[CELL_METHODS_INDEX]
+        expected = [CellMethod('mean', 'time'),
+                    CellMethod('mean', 'longitude')]
+        self.assertEqual(res, expected)
+
+    def test_multiple_unordered_rotated_lbprocs(self):
+        field = mock.MagicMock(lbproc=192,
+                               lbtim=mock.Mock(ia=24, ib=5, ic=3),
+                               lbcode=SplittableInt(101),
+                               _x_coord_name=lambda: 'grid_longitude',
+                               _y_coord_name=lambda: 'grid_latitude')
+        res = _all_other_rules(field)[CELL_METHODS_INDEX]
+        expected = [CellMethod('mean', 'time'),
+                    CellMethod('mean', 'grid_longitude')]
         self.assertEqual(res, expected)
 
 

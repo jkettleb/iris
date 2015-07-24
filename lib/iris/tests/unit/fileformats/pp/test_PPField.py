@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2013 - 2014, Met Office
+# (C) British Crown Copyright 2013 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the `iris.fileformats.pp.PPField` class."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -95,8 +96,11 @@ class Test_save(tests.IrisTest):
         with mock.patch('warnings.warn') as warn:
             checksum_64 = field_checksum(data_64.astype('>f8'))
 
-        self.assertEquals(checksum_32, checksum_64)
-        warn.assert_called()
+        self.assertEqual(checksum_32, checksum_64)
+        warn.assert_called_once_with(
+            'Downcasting array precision from float64 to float32 for save.'
+            'If float64 precision is required then please save in a '
+            'different format')
 
 
 class Test_calendar(tests.IrisTest):

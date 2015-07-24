@@ -20,6 +20,7 @@ Definitions of derived coordinates.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 from abc import ABCMeta, abstractmethod, abstractproperty
 import warnings
@@ -91,7 +92,8 @@ class LazyArray(object):
 
         """
         crc = zlib.crc32(np.array(self._cached_array(), order='C'))
-        return 'LazyArray(shape={}, checksum={})'.format(self.shape, crc)
+        crc &= 0xffffffff
+        return 'LazyArray(shape={}, checksum=0x{:08x})'.format(self.shape, crc)
 
     def view(self, *args, **kwargs):
         """
@@ -176,8 +178,7 @@ class AuxCoordFactory(CFVariableMixin):
         def arg_text(item):
             key, coord = item
             return '{}={}'.format(key, str(coord and repr(coord.name())))
-        items = self.dependencies.items()
-        items.sort(key=lambda item: item[0])
+        items = sorted(self.dependencies.items(), key=lambda item: item[0])
         args = map(arg_text, items)
         return '<{}({})>'.format(type(self).__name__, ', '.join(args))
 
@@ -289,7 +290,7 @@ class AuxCoordFactory(CFVariableMixin):
         sorted_pairs = sorted(enumerate(dims), key=lambda pair: pair[1])
         transpose_order = [pair[0] for pair in sorted_pairs]
         points = coord._points
-        if dims and transpose_order != range(len(dims)):
+        if dims and transpose_order != list(range(len(dims))):
             points = points.transpose(transpose_order)
 
         # Expand dimensionality to be consistent with the Cube.
@@ -323,7 +324,7 @@ class AuxCoordFactory(CFVariableMixin):
                 # no transpose is needed.
                 if derived_dims:
                     keys = tuple(slice(None) if dim in derived_dims else 0 for
-                                 dim in xrange(ndim))
+                                 dim in range(ndim))
                     nd_points = nd_points[keys]
             else:
                 # If no coord, treat value as zero.

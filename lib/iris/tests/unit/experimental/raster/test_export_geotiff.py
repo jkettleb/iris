@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2013 - 2014, Met Office
+# (C) British Crown Copyright 2013 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the `iris.experimental.raster.export_geotiff` function."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -39,10 +40,10 @@ class TestDtypeAndValues(tests.IrisTest):
     def _cube(self, dtype):
         data = np.arange(12).reshape(3, 4).astype(dtype) + 20
         cube = Cube(data, 'air_pressure_anomaly')
-        coord = DimCoord(range(3), 'latitude', units='degrees')
+        coord = DimCoord(np.arange(3), 'latitude', units='degrees')
         coord.guess_bounds()
         cube.add_dim_coord(coord, 0)
-        coord = DimCoord(range(4), 'longitude', units='degrees')
+        coord = DimCoord(np.arange(4), 'longitude', units='degrees')
         coord.guess_bounds()
         cube.add_dim_coord(coord, 1)
         return cube
@@ -107,11 +108,11 @@ class TestProjection(tests.IrisTest):
     def _cube(self, ellipsoid=None):
         data = np.arange(12).reshape(3, 4).astype('u1')
         cube = Cube(data, 'air_pressure_anomaly')
-        coord = DimCoord(range(3), 'latitude', units='degrees',
+        coord = DimCoord(np.arange(3), 'latitude', units='degrees',
                          coord_system=ellipsoid)
         coord.guess_bounds()
         cube.add_dim_coord(coord, 0)
-        coord = DimCoord(range(4), 'longitude', units='degrees',
+        coord = DimCoord(np.arange(4), 'longitude', units='degrees',
                          coord_system=ellipsoid)
         coord.guess_bounds()
         cube.add_dim_coord(coord, 1)

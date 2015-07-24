@@ -9,6 +9,7 @@
 language: python
 python:
   - 2.7
+sudo: false
 
 env:
   - TEST_TARGET=default
@@ -20,7 +21,7 @@ git:
   depth: 10000
 
 install:
-  - export IRIS_TEST_DATA_REF="9de641446b3a44f80405608beb5bdb1d0f61ab30"
+  - export IRIS_TEST_DATA_REF="037fee7d26de00897d1694ec040b6ed895d24a38"
   - export IRIS_TEST_DATA_SUFFIX=$(echo "${IRIS_TEST_DATA_REF}" | sed "s/^v//")
 
   - export IRIS_SAMPLE_DATA_REF="1ed3e26606366717e2053bacc12bf5e8d8fa2704"
@@ -108,10 +109,10 @@ install:
 
 script:
   - if [[ $TEST_TARGET == 'default' ]]; then
-      python -m iris.tests.runner --default-tests --system-tests;
+      python -m iris.tests.runner --default-tests --system-tests --print-failed-images;
     fi
   - if [[ $TEST_TARGET == 'example' ]]; then
-      python -m iris.tests.runner --example-tests;
+      python -m iris.tests.runner --example-tests --print-failed-images;
     fi
   # "make html" produces an error when run on Travis that does not
   # affect any downstream functionality but causes the build to fail

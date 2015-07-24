@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -26,12 +26,12 @@ References:
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 from abc import ABCMeta, abstractmethod
-from collections import Iterable
+from collections import Iterable, MutableMapping
 import os
 import re
-import UserDict
 import warnings
 
 import netCDF4
@@ -62,11 +62,11 @@ reference_terms = dict(atmosphere_sigma_coordinate=['ps'],
                        atmosphere_hybrid_sigma_pressure_coordinate=['ps'],
                        atmosphere_hybrid_height_coordinate=['orog'],
                        atmosphere_sleve_coordinate=['zsurf1', 'zsurf2'],
-                       ocean_sigma_coordinate=['eta'],
-                       ocean_s_coordinate=['eta'],
-                       ocean_sigma_z_coordinate=['eta'],
-                       ocean_s_coordinate_g1=['eta'],
-                       ocean_s_coordinate_g2=['eta'])
+                       ocean_sigma_coordinate=['eta', 'depth'],
+                       ocean_s_coordinate=['eta', 'depth'],
+                       ocean_sigma_z_coordinate=['eta', 'depth'],
+                       ocean_s_coordinate_g1=['eta', 'depth'],
+                       ocean_s_coordinate_g2=['eta', 'depth'])
 
 
 ################################################################################
@@ -255,7 +255,6 @@ class CFAncillaryDataVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF ancillary data variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -265,7 +264,7 @@ class CFAncillaryDataVariable(CFVariable):
             if nc_var_att is not None:
                 for name in nc_var_att.split():
                     if name not in ignore:
-                        if name not in netcdf_variable_names:
+                        if name not in variables:
                             if warn:
                                 message = 'Missing CF-netCDF ancillary data variable %r, referenced by netCDF variable %r'
                                 warnings.warn(message % (name, nc_var_name))
@@ -296,7 +295,6 @@ class CFAuxiliaryCoordinateVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF auxiliary coordinate variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -306,7 +304,7 @@ class CFAuxiliaryCoordinateVariable(CFVariable):
             if nc_var_att is not None:
                 for name in nc_var_att.split():
                     if name not in ignore:
-                        if name not in netcdf_variable_names:
+                        if name not in variables:
                             if warn:
                                 message = 'Missing CF-netCDF auxiliary coordinate variable %r, referenced by netCDF variable %r'
                                 warnings.warn(message % (name, nc_var_name))
@@ -339,7 +337,6 @@ class CFBoundaryVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF boundary variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -350,7 +347,7 @@ class CFBoundaryVariable(CFVariable):
                 name = nc_var_att.strip()
 
                 if name not in ignore:
-                    if name not in netcdf_variable_names:
+                    if name not in variables:
                         if warn:
                             message = 'Missing CF-netCDF boundary variable %r, referenced by netCDF variable %r'
                             warnings.warn(message % (name, nc_var_name))
@@ -408,7 +405,6 @@ class CFClimatologyVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF climatology variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -419,7 +415,7 @@ class CFClimatologyVariable(CFVariable):
                 name = nc_var_att.strip()
 
                 if name not in ignore:
-                    if name not in netcdf_variable_names:
+                    if name not in variables:
                         if warn:
                             message = 'Missing CF-netCDF climatology variable %r, referenced by netCDF variable %r'
                             warnings.warn(message % (name, nc_var_name))
@@ -531,7 +527,6 @@ class _CFFormulaTermsVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF formula terms variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -546,7 +541,7 @@ class _CFFormulaTermsVariable(CFVariable):
                     variable_name = match_group['rhs']
 
                     if variable_name not in ignore:
-                        if variable_name not in netcdf_variable_names:
+                        if variable_name not in variables:
                             if warn:
                                 message = 'Missing CF-netCDF formula term variable %r, referenced by netCDF variable %r'
                                 warnings.warn(message % (variable_name, nc_var_name))
@@ -588,7 +583,6 @@ class CFGridMappingVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all grid mapping variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -599,7 +593,7 @@ class CFGridMappingVariable(CFVariable):
                 name = nc_var_att.strip()
 
                 if name not in ignore:
-                    if name not in netcdf_variable_names:
+                    if name not in variables:
                         if warn:
                             message = 'Missing CF-netCDF grid mapping variable %r, referenced by netCDF variable %r'
                             warnings.warn(message % (name, nc_var_name))
@@ -626,7 +620,6 @@ class CFLabelVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF label variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -636,7 +629,7 @@ class CFLabelVariable(CFVariable):
             if nc_var_att is not None:
                 for name in nc_var_att.split():
                     if name not in ignore:
-                        if name not in netcdf_variable_names:
+                        if name not in variables:
                             if warn:
                                 message = 'Missing CF-netCDF label variable %r, referenced by netCDF variable %r'
                                 warnings.warn(message % (name, nc_var_name))
@@ -767,7 +760,6 @@ class CFMeasureVariable(CFVariable):
     def identify(cls, variables, ignore=None, target=None, warn=True):
         result = {}
         ignore, target = cls._identify_common(variables, ignore, target)
-        netcdf_variable_names = variables.keys()
 
         # Identify all CF measure variables.
         for nc_var_name, nc_var in target.iteritems():
@@ -781,7 +773,7 @@ class CFMeasureVariable(CFVariable):
                     variable_name = match_group['rhs']
 
                     if variable_name not in ignore:
-                        if variable_name not in netcdf_variable_names:
+                        if variable_name not in variables:
                             if warn:
                                 message = 'Missing CF-netCDF measure variable %r, referenced by netCDF variable %r'
                                 warnings.warn(message % (variable_name, nc_var_name))
@@ -792,7 +784,7 @@ class CFMeasureVariable(CFVariable):
 
 
 ################################################################################
-class CFGroup(object, UserDict.DictMixin):
+class CFGroup(MutableMapping, object):
     """
     Represents a collection of 'NetCDF Climate and Forecast (CF) Metadata
     Conventions' variables and netCDF global attributes.
@@ -864,6 +856,13 @@ class CFGroup(object, UserDict.DictMixin):
         """Return the names of all the CF-netCDF variables in the group."""
         return self._cf_variables.keys()
 
+    def __len__(self):
+        return len(self._cf_variables)
+
+    def __iter__(self):
+        for item in self._cf_variables:
+            yield item
+
     def __setitem__(self, name, variable):
         if not isinstance(variable, CFVariable):
             raise TypeError('Attempted to add an invalid CF-netCDF variable to the %s' % self.__class__.__name__)
@@ -931,7 +930,7 @@ class CFReader(object):
     def _translate(self):
         """Classify the netCDF variables into CF-netCDF variables."""
 
-        netcdf_variable_names = self._dataset.variables.keys()
+        netcdf_variable_names = list(self._dataset.variables.keys())
 
         # Identify all CF coordinate variables first. This must be done
         # first as, by CF convention, the definition of a CF auxiliary
@@ -940,7 +939,7 @@ class CFReader(object):
         coords = CFCoordinateVariable.identify(self._dataset.variables,
                                                monotonic=self._check_monotonic)
         self.cf_group.update(coords)
-        coordinate_names = self.cf_group.coordinates.keys()
+        coordinate_names = list(self.cf_group.coordinates.keys())
 
         # Identify all CF variables EXCEPT for the "special cases".
         for variable_type in self._variable_types:
@@ -979,7 +978,7 @@ class CFReader(object):
         """Build the first order relationships between CF-netCDF variables."""
 
         def _build(cf_variable):
-            coordinate_names = self.cf_group.coordinates.keys()
+            coordinate_names = list(self.cf_group.coordinates.keys())
             cf_group = CFGroup()
 
             # Build CF variable relationships.

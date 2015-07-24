@@ -96,6 +96,7 @@ All the load functions share very similar arguments:
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import contextlib
 import itertools
@@ -132,7 +133,7 @@ class Future(threading.local):
     """Run-time configuration controller."""
 
     def __init__(self, cell_datetime_objects=False, netcdf_promote=False,
-                 strict_grib_load=False):
+                 strict_grib_load=False, netcdf_no_unlimited=False):
         """
         A container for run-time options controls.
 
@@ -170,16 +171,22 @@ class Future(threading.local):
         encounters a GRIB message which uses a template not supported
         by the conversion.
 
+        The option `netcdf_no_unlimited`, when True, changes the
+        behaviour of the netCDF saver, such that no dimensions are set to
+        unlimited.  The current default is that the leading dimension is
+        unlimited unless otherwise specified.
+
         """
         self.__dict__['cell_datetime_objects'] = cell_datetime_objects
         self.__dict__['netcdf_promote'] = netcdf_promote
         self.__dict__['strict_grib_load'] = strict_grib_load
+        self.__dict__['netcdf_no_unlimited'] = netcdf_no_unlimited
 
     def __repr__(self):
-        return ('Future(cell_datetime_objects={}, netcdf_promote={}, '
-                'strict_grib_load={})'.format(self.cell_datetime_objects,
-                                              self.netcdf_promote,
-                                              self.strict_grib_load))
+        msg = ('Future(cell_datetime_objects={}, netcdf_promote={}, '
+               'strict_grib_load={}, netcdf_no_unlimited={})')
+        return msg.format(self.cell_datetime_objects, self.netcdf_promote,
+                          self.strict_grib_load, self.netcdf_no_unlimited)
 
     def __setattr__(self, name, value):
         if name not in self.__dict__:
@@ -363,7 +370,7 @@ def load_cubes(uris, constraints=None, callback=None):
     collection = _load_collection(uris, constraints, callback).merged()
 
     # Make sure we have exactly one merged cube per constraint
-    bad_pairs = filter(lambda pair: len(pair) != 1, collection.pairs)
+    bad_pairs = [pair for pair in collection.pairs if len(pair) != 1]
     if bad_pairs:
         fmt = '   {} -> {} cubes'
         bits = [fmt.format(pair.constraint, len(pair)) for pair in bad_pairs]

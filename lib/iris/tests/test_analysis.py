@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2010 - 2014, Met Office
+# (C) British Crown Copyright 2010 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,11 +17,10 @@
 
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # import iris tests first so that some things can be initialised before importing anything else
 import iris.tests as tests
-
-import itertools
 
 import cartopy.crs as ccrs
 import numpy as np
@@ -124,12 +123,12 @@ class TestAnalysisWeights(tests.IrisTest):
         b = cube.collapsed(lon_coord, iris.analysis.MEAN, weights=weights)
         b.data = np.asarray(b.data)
         self.assertCMLApproxData(b, ('analysis', 'weighted_mean_lon.cml'))
-        self.assertEquals(b.coord("dummy").shape, (1,))
+        self.assertEqual(b.coord('dummy').shape, (1, ))
 
         # test collapsing multiple coordinates (and the fact that one of the coordinates isn't the same coordinate instance as on the cube)
         c = cube.collapsed([lat_coord[:], lon_coord], iris.analysis.MEAN, weights=weights)
         self.assertCMLApproxData(c, ('analysis', 'weighted_mean_latlon.cml'))
-        self.assertEquals(c.coord("dummy").shape, (1,))
+        self.assertEqual(c.coord('dummy').shape, (1, ))
 
         # Check new coord bounds - made from points
         self.assertArrayEqual(c.coord('lat').bounds, [[1, 3]])
@@ -163,7 +162,7 @@ class TestAnalysisWeights(tests.IrisTest):
         f, collapsed_area_weights = e.collapsed('latitude', iris.analysis.MEAN, weights=area_weights, returned=True)
         g = f.collapsed('longitude', iris.analysis.MEAN, weights=collapsed_area_weights)
         # check it's a 0d, scalar cube
-        self.assertEquals(g.shape, ())
+        self.assertEqual(g.shape, ())
         # check the value - pp_area_avg's result of 287.927 differs by factor of 1.00002959
         np.testing.assert_approx_equal(g.data, 287.935, significant=5)
 
@@ -244,27 +243,6 @@ class TestAnalysisBasic(tests.IrisTest):
 
     def test_duplicate_coords(self):
         self.assertRaises(ValueError, tests.stock.track_1d, duplicate_x=True)
-
-    def test_xy_range(self):
-        result_non_circ = iris.analysis.cartography._xy_range(self.cube)
-        self.assertEqual(self.cube.coord('grid_longitude').circular, False)
-        np.testing.assert_array_almost_equal(
-            result_non_circ, ((313.02, 392.11), (-22.49, 24.92)), decimal=0)
-
-    def test_xy_range_geog_cs(self):
-        cube = iris.tests.stock.global_pp()
-        self.assertTrue(cube.coord('longitude').circular)
-        result = iris.analysis.cartography._xy_range(cube)
-        np.testing.assert_array_almost_equal(
-            result, ((0, 360), (-90, 90)), decimal=0)
-
-    def test_xy_range_geog_cs_regional(self):
-        cube = iris.tests.stock.global_pp()
-        cube = cube[10:20, 20:30]
-        self.assertFalse(cube.coord('longitude').circular)
-        result = iris.analysis.cartography._xy_range(cube)
-        np.testing.assert_array_almost_equal(
-            result, ((75, 108.75), (42.5, 65)), decimal=0)
 
 
 class TestMissingData(tests.IrisTest):
@@ -1065,7 +1043,7 @@ class TestProject(tests.GraphicsTest):
         # Set up figure
         fig = plt.figure(figsize=(10, 10))
         gs = matplotlib.gridspec.GridSpec(nrows=3, ncols=3, hspace=1.5, wspace=0.5)
-        for subplot_spec, (name, target_proj) in itertools.izip(gs, projections.iteritems()):
+        for subplot_spec, (name, target_proj) in zip(gs, projections.iteritems()):
             # Set up axes and title
             ax = plt.subplot(subplot_spec, frameon=False, projection=target_proj)
             ax.set_title(name)

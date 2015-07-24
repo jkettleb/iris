@@ -20,6 +20,7 @@ Provides an interface to manage URI scheme support in iris.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import glob
 import os.path
@@ -39,7 +40,7 @@ class _SaversDict(dict):
     def __setitem__(self, key, value):
         if not isinstance(key, basestring):
             raise ValueError("key is not a string")
-        if key in self.keys():
+        if key in self:
             raise ValueError("A saver already exists for", key)
         for k in self.keys():
             if k.endswith(key) or key.endswith(k):

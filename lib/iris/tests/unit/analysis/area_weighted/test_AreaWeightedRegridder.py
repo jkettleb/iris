@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -20,6 +20,7 @@ Unit tests for :class:`iris.analysis._area_weighted.AreaWeightedRegridder`.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -102,8 +103,8 @@ class Test(tests.IrisTest):
     def test_mismatched_src_coord_systems(self):
         src = Cube(np.zeros((3, 4)))
         cs = GeogCS(6543210)
-        lat = DimCoord(range(3), 'latitude', coord_system=cs)
-        lon = DimCoord(range(4), 'longitude')
+        lat = DimCoord(np.arange(3), 'latitude', coord_system=cs)
+        lon = DimCoord(np.arange(4), 'longitude')
         src.add_dim_coord(lat, 0)
         src.add_dim_coord(lon, 1)
         target = mock.Mock()

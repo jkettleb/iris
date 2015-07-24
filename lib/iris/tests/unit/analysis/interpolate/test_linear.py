@@ -1,4 +1,4 @@
-# (C) British Crown Copyright 2014, Met Office
+# (C) British Crown Copyright 2014 - 2015, Met Office
 #
 # This file is part of Iris.
 #
@@ -17,6 +17,7 @@
 """Unit tests for the :func:`iris.analysis.interpolate.linear` function."""
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 # Import iris.tests first so that some things can be initialised before
 # importing anything else.
@@ -76,8 +77,8 @@ class Test_masks(tests.IrisTest):
 class TestNDCoords(tests.IrisTest):
     def setUp(self):
         cube = stock.simple_3d_w_multidim_coords()
-        cube.add_dim_coord(iris.coords.DimCoord(range(3), 'longitude'), 1)
-        cube.add_dim_coord(iris.coords.DimCoord(range(4), 'latitude'), 2)
+        cube.add_dim_coord(iris.coords.DimCoord(np.arange(3), 'longitude'), 1)
+        cube.add_dim_coord(iris.coords.DimCoord(np.arange(4), 'latitude'), 2)
         cube.data = cube.data.astype(np.float32)
         self.cube = cube
 

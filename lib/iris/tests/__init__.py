@@ -31,6 +31,7 @@ graphical test results.
 """
 
 from __future__ import (absolute_import, division, print_function)
+from six.moves import (filter, input, map, range, zip)  # noqa
 
 import collections
 import contextlib
@@ -39,12 +40,12 @@ import filecmp
 import functools
 import gzip
 import inspect
+import io
 import logging
 import mock
 import os
 import os.path
 import shutil
-import StringIO
 import subprocess
 import sys
 import unittest
@@ -117,7 +118,7 @@ def main():
     """A wrapper for unittest.main() which adds iris.test specific options to the help (-h) output."""
     if '-h' in sys.argv or '--help' in sys.argv:
         stdout = sys.stdout
-        buff = StringIO.StringIO()
+        buff = io.StringIO()
         # NB. unittest.main() raises an exception after it's shown the help text
         try:
             sys.stdout = buff
@@ -288,7 +289,7 @@ class IrisTest(unittest.TestCase):
         elif isinstance(flags, basestring):
             flags = flags.split()
         else:
-            flags = map(str, flags)
+            flags = list(map(str, flags))
 
         with open(cdl_filename, 'w') as cdl_file:
             subprocess.check_call(['ncdump'] + flags + [netcdf_filename],
@@ -379,9 +380,11 @@ class IrisTest(unittest.TestCase):
             if isinstance(cube.data, ma.MaskedArray):
                 # Avoid recording any non-initialised array data.
                 data = cube.data.filled()
-                np.savez(file(reference_path, 'wb'), data=data, mask=cube.data.mask)
+                with open(reference_path, 'wb') as reference_file:
+                    np.savez(reference_file, data=data, mask=cube.data.mask)
             else:
-                np.save(file(reference_path, 'wb'), cube.data)
+                with open(reference_path, 'wb') as reference_file:
+                    np.save(reference_file, cube.data)
 
     def assertFilesEqual(self, test_filename, reference_filename):
         reference_path = get_result_path(reference_filename)

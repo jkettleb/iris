@@ -1029,10 +1029,10 @@ fc_extras
         try:
             iris.unit.as_unit(attr_units)
         except ValueError:
-            msg = 'Ignoring netCDF variable {!r} invalid units {!r}'
-            msg_name = '{}'.format(cf_var.cf_name)
-            msg_units = '{}'.format(attr_units)
-            warnings.warn(msg.format(msg_name, msg_units))
+        # Using converted unicode message. Can be reverted with Python 3.
+            msg = u'Ignoring netCDF variable {!r} invalid units {!r}'.format(
+                cf_var.cf_name, attr_units)
+            warnings.warn(msg.encode('ascii', errors='backslashreplace'))
             attributes['invalid_units'] = attr_units
             attr_units = iris.unit._UNKNOWN_UNIT_STRING
 
@@ -1188,7 +1188,8 @@ fc_extras
 
         # Determine the name of the dimension/s shared between the CF-netCDF data variable
         # and the coordinate being built.
-        common_dims = filter(lambda dim: dim in cf_var.dimensions, cf_coord_var.dimensions)
+        common_dims = [dim for dim in cf_coord_var.dimensions
+                       if dim in cf_var.dimensions]
         data_dims = None
         if common_dims:
             # Calculate the offset of each common dimension.
@@ -1281,7 +1282,8 @@ fc_extras
 
         # Determine the name of the dimension/s shared between the CF-netCDF data variable
         # and the coordinate being built.
-        common_dims = filter(lambda dim: dim in cf_var.dimensions, cf_coord_var.dimensions)
+        common_dims = [dim for dim in cf_coord_var.dimensions
+                       if dim in cf_var.dimensions]
         data_dims = None    
         if common_dims:
             # Calculate the offset of each common dimension.
